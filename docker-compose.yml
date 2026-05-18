@@ -1,0 +1,62 @@
+#version: '3.8' # Specify the Docker Compose file format version
+
+services:
+  # Define the Python web server service
+  backend:
+    build:
+      context: ./backend # Build context is the 'backend' directory
+      dockerfile: Dockerfile.fastapi
+    container_name: python_web_server 
+    networks:
+      - net
+    expose:
+      - 5000
+    ports:
+      - "5000:5000" # Map port 5000 on the host to port 5000 in the container
+    volumes:
+      - "./backend:/app"
+    depends_on:
+      - db # Ensure the 'db' service starts before the 'web' service
+
+  # MySQL database service
+  db:
+    image: postgres:15-alpine
+    container_name: postgres_database
+    ports:
+      - "5432:5432" # Map port 3306 on the host to port 3306 in the container
+    networks:
+      - net
+    expose:
+      - 5432
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
+      POSTGRES_USER: ${POSTGRES_USER} # A user for the database
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+    volumes:
+      # Persist MySQL data to a named volume or host directory
+      - db_data:/var/lib/postgresql/data
+  
+  # React frontend service
+  frontend:
+    build:
+      context: ./react-app 
+      dockerfile: Dockerfile.react
+    container_name: react_frontend
+    networks:
+      - net
+    ports:
+      - "80:3000" 
+    volumes:
+      - ./react-app:/app # Mount the React app directory for live reloading
+      - /app/node_modules # Exclude node_modules from host mount to prevent issues
+    depends_on:
+      - backend # Ensure the web backend is running before the frontend starts
+
+# Define named volumes (if used)
+volumes:
+  db_data: # This will create a Docker volume named 'db_data'
+
+networks:
+  net:
+    name: net
+    driver: bridge

@@ -1,0 +1,13 @@
+**/__pycache__
+.vscode
+
+
+# pyenv
+Include
+Lib
+Scripts
+pyvenv.cfg
+
+
+.env
+*.txt
