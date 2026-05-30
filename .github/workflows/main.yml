@@ -1,0 +1,89 @@
+name: main
+
+on:
+  push:
+    branches:
+      - "main"
+      - "dev"
+      - "feature/*"
+  pull_request:
+    branches:
+      - "main"
+      - "dev"
+
+jobs:
+  # static analysis of code using security linters
+  static-analysis:
+    name: Code Linting & Static Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install Linting Tools
+      run: pip install bandit ruff
+
+    - name: Run Ruff Syntax Linter
+      run: ruff check .
+
+    - name: Run Bandit Security Scanner
+      run: bandit -r ./backend -x ./backend/tests
+
+  # Integration tests for main and dev scope
+  integration-tests:
+    name: Dockerized Integration Testing
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    # Logical Gate: Skip this slow job on active feature branches unless a PR is opened
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Inject Mock Pipeline Env Variables
+      run: |
+        echo "DB_USER=test_user" >> .env
+        echo "DB_PASSWORD=test_password_123" >> .env
+        echo "DB_NAME=finwise_test_db" >> .env
+        echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
+
+    - name: Spin up docker instances
+      run: docker-compose up --build -d
+
+    - name: Wait for Services to Initialize
+      run: sleep 10
+
+    - name: Execute Backend Pytest Suite
+      run: docker-compose exec -T backend-service pytest backend/tests
+
+    - name: Execute Frontend Vitest Suite
+      run: docker-compose exec -T frontend-service npm run test:ci
+
+    - name: Graceful Teardown
+      if: always()
+      run: docker-compose down -v
+
+  # Deploy production code to AWS
+  production-deployment:
+    name: Deploy Release to Production Server
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    # Strict logical gate: Only runs if the target branch is explicitly 'main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Trigger Cloud Native Deployment
+      run: |
+        echo "All automated tests and vulnerability scans have passed successfully."
+        echo "Deploying production-ready build to AWS environment..."
+        # Add production AWS deployment CLI commands here
