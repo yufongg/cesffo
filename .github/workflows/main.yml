@@ -55,20 +55,20 @@ jobs:
         echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
 
     - name: Spin up docker instances
-      run: docker-compose up --build -d
+      run: docker compose up --build -d
 
     - name: Wait for Services to Initialize
       run: sleep 10
 
     - name: Execute Backend Pytest Suite
-      run: docker-compose exec -T backend-service pytest backend/tests
+      run: docker compose exec -T backend-service pytest backend/tests
 
     - name: Execute Frontend Vitest Suite
-      run: docker-compose exec -T frontend-service npm run test:ci
+      run: docker compose exec -T frontend-service npm run test:ci
 
     - name: Graceful Teardown
       if: always()
-      run: docker-compose down -v
+      run: docker compose down -v
 
   # Deploy production code to AWS
   production-deployment:
