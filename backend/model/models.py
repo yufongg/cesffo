@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey, 
-    ForeignKeyConstraint, PrimaryKeyConstraint
+    PrimaryKeyConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship
 
 from db.db import Base
 

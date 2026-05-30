@@ -11,6 +11,8 @@ venv.bak/
 
 # Text files
 *.txt
+!requirements.txt
+
 
 # VS Code
 .vscode
