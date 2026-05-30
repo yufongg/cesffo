@@ -1,0 +1,10 @@
+dotenv
+dynaconf
+fastapi
+uvicorn
+requests
+sqlmodel
+typer
+pydantic
+sqlalchemy
+jinja2
