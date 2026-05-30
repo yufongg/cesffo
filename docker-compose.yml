@@ -23,15 +23,15 @@ services:
     image: postgres:15-alpine
     container_name: postgres_database
     ports:
-      - "5432:5432" # Map port 3306 on the host to port 3306 in the container
+      - "5432:5432" 
     networks:
       - net
     expose:
       - 5432
     environment:
-      POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
-      POSTGRES_USER: ${POSTGRES_USER} # A user for the database
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+      DB_NAME: ${POSTGRES_DB} # The name of the database to create
+      DB_USER: ${POSTGRES_USER} # A user for the database
+      DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
     volumes:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
