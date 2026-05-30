@@ -33,7 +33,7 @@ jobs:
       run: ruff check .
 
     - name: Run Bandit Security Scanner
-      run: bandit -r ./backend -x ./backend/tests
+      run: bandit -c bandit.yaml -r ./backend -x ./backend/tests
 
   # Integration tests for main and dev scope
   integration-tests:
