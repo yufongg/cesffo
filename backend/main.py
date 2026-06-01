@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 # import re
 # import requests
 import uvicorn
-from sqlachemy import text
+from sqlalchemy import text
 
 from db.db import engine, Base, get_db_session
 import model.models  # Must import models to register them on the metadata space

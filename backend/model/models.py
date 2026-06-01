@@ -60,7 +60,7 @@ class Thread(Base):
     updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
 
     # Relationships
-    category = relationship("Category", back_populates="thread")
+    category = relationship("Category", back_populates="threads")
     posts = relationship("Post", back_populates="thread", cascade="all, delete-orphan")
 
 
@@ -80,7 +80,7 @@ class Post(Base):
     updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
 
     # Relationships
-    thread = relationship("Thread", back_populates="post")
+    thread = relationship("Thread", back_populates="posts")
     
     # Hierarchy mappings
     likes = relationship("PostLikes", back_populates="post", cascade="all, delete-orphan")

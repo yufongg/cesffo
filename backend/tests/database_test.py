@@ -2,7 +2,6 @@ import os
 import pytest
 from sqlalchemy import text
 
-
 from db.db import SessionLocal, get_db_session
 from model.models import User, Cart
 
@@ -41,7 +40,7 @@ def test_database():
     
 def test_db_models():
     try:
-        with get_db_session as session:
+        with get_db_session() as session:
             session.query(User).filter(User.email == "test@example.com").delete()
             session.commit()
 
