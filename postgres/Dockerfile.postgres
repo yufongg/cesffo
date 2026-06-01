@@ -1,0 +1,7 @@
+FROM postgres:15-alpine
+
+# Copy the initialization script directly into the image footprint
+COPY init.sh /docker-entrypoint-initdb.d/init.sh
+
+# Make sure it has execution permissions
+RUN chmod +x /docker-entrypoint-initdb.d/init.sh

@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Request #, HTTPException, Body, Form, Depends, status
+from fastapi import FastAPI, Request, status #, HTTPException, Body, Form, Depends, 
 from fastapi.concurrency import asynccontextmanager
-from fastapi.responses import HTMLResponse #, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse , JSONResponse #, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 # from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +11,9 @@ from fastapi.staticfiles import StaticFiles
 # import re
 # import requests
 import uvicorn
+from sqlachemy import text
 
-# Load environment variables from env file
-# from dotenv import load_dotenv
-# load_dotenv()
-
-from db.db import engine, Base
+from db.db import engine, Base, get_db_session
 import model.models  # Must import models to register them on the metadata space
 
 # Generates all tables defined via 'Base' if they don't already exist in Postgres
@@ -62,6 +59,24 @@ async def getForumHome(request: Request):
     return templates.TemplateResponse("test.html", {"request": request})
 
 
+
+# --- 
+@app.get("/healthcheck", tags=["Health"]) 
+async def healthcheck():
+    try: 
+        with get_db_session() as session:
+            session.execute(text("SELECT 1"))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "healthy", "database": "connected"}
+        )
+    except Exception as e: 
+        # TODO: configure Logger and log exception
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            conetent={"status": "unhealthy",}
+        )
 
 
 @app.get("/test", response_class=HTMLResponse)

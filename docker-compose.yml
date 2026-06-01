@@ -29,7 +29,9 @@ services:
 
   # MySQL database service
   db:
-    image: postgres:15-alpine
+    build:
+      context: ./postgres # Build context is the 'postgres' directory
+      dockerfile: Dockerfile.postgres
     container_name: postgres_database
     ports:
       - "5432:5432" 
@@ -46,7 +48,6 @@ services:
     volumes:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
-      - ./postgres:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-U", "${POSTGRES_USER}", "-d",  "${POSTGRES_DB}"]
       interval: 10s
