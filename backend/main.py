@@ -71,7 +71,7 @@ async def healthcheck():
             status_code=status.HTTP_200_OK,
             content={"status": "healthy", "database": "connected"}
         )
-    except Exception as e: 
+    except Exception: # as e: 
         # TODO: configure Logger and log exception
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

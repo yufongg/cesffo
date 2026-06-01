@@ -62,10 +62,10 @@ jobs:
       run: sleep 120
 
     - name: Execute Backend Pytest Suite
-      run: docker compose run --rm python_web_server pytest backend/tests
+      run: docker compose run --rm backend pytest backend/tests
 
     - name: Execute Frontend Vitest Suite
-      run: docker compose run --rm react_frontend npm run test:ci
+      run: docker compose run --rm frontend npm run test:ci
 
     - name: Graceful Teardown
       if: always()

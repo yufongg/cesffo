@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 
 from db.db import SessionLocal, get_db_session
-from model.models import User
+from model.models import User, Cart
 
 def test_database_connection_direct():
     """
@@ -66,4 +66,4 @@ def test_db_models():
             session.delete(test_user)
             session.commit()
     except Exception as e:
-        pytest.fail("Model integrity test faulted {e}")
+        pytest.fail(f"Model integrity test faulted {e}")
