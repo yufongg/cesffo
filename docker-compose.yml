@@ -46,7 +46,7 @@ services:
     volumes:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
-      - ${PWD}/postgres/init.sh:/docker-entrypoint-initdb.d/init.sh
+      - ./postgres:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-U", "${POSTGRES_USER}", "-d",  "${POSTGRES_DB}"]
       interval: 10s
