@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey, 
     PrimaryKeyConstraint
@@ -36,7 +36,7 @@ class Category(Base):
     slug = Column(String(100), nullable=False, unique=True)
     description = Column(String(500))
     display_order = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     threads = relationship("Thread", back_populates="category", cascade="all, delete-orphan")
@@ -56,8 +56,8 @@ class Thread(Base):
     slug = Column(String(255), nullable=False, unique=True)
     view_count = Column(Integer, default=0, nullable=False)
     is_locked = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     category = relationship("Category", back_populates="threads")
@@ -76,8 +76,8 @@ class Post(Base):
     parent_id = Column(UUID(as_uuid=True), ForeignKey('post.post_id', ondelete='SET NULL', onupdate="CASCADE"), nullable=True)
     
     content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     thread = relationship("Thread", back_populates="post")
@@ -92,7 +92,7 @@ class PostLikes(Base):
 
     post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
-    liked_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    liked_time = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
 
     # Table-level composite primary key constraint
     __table_args__ = (
@@ -116,8 +116,8 @@ class Course(Base):
     tags = Column(JSON, nullable=False, default=list)             # Maps str[] as JSON Array array list
     prerequirements = Column(JSON, nullable=False, default=dict)  # Maps dict parameters
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.now(datetime.timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     enrollments = relationship("CourseEnrollment", back_populates="course", cascade="all, delete-orphan")
@@ -131,7 +131,7 @@ class CourseEnrollment(Base):
     course_id = Column(UUID(as_uuid=True), ForeignKey("course.course_id", ondelete="CASCADE"), nullable=False)
     student_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL"), nullable=True)
     progress = Column(Float, default=0.0, nullable=False)
-    enrolled_date = Column(DateTime, default=datetime.now(datetime.timezone.utc), nullable=False)
+    enrolled_date = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
 
     

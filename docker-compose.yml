@@ -16,12 +16,16 @@ services:
     volumes:
       - "./backend:/app"
     environment:
-      DB_HOST: db
+      DB_HOST: postgres_database
       DB_NAME: ${POSTGRES_DB} # The name of the database to create
       DB_USER: ${POSTGRES_USER} # A user for the database
       DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
     depends_on:
-      - db # Ensure the 'db' service starts before the 'web' service
+      db: # Ensure the 'db' service starts before the 'web' service
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl", "-f", "http://localhost:5000/healthcheck"]
 
   # MySQL database service
   db:
@@ -34,12 +38,20 @@ services:
     expose:
       - 5432
     environment:
-      DB_NAME: ${POSTGRES_DB} # The name of the database to create
-      DB_USER: ${POSTGRES_USER} # A user for the database
-      DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+      POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
+      POSTGRES_USER: postgres # A user for the database
+      POSTGRES_PASSWORD: ${POSTGRES_SECRET} # Password for the user
+      APP_USER: ${POSTGRES_USER}
+      APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
+      - ${PWD}/postgres/init.sh:/docker-entrypoint-initdb.d/init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-U", "${POSTGRES_USER}", "-d",  "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
   
   # React frontend service
   frontend:

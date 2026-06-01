@@ -6,5 +6,7 @@ requests
 sqlmodel
 typer
 pydantic
+psycopg2
 sqlalchemy
 jinja2
+pytest
