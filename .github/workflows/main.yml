@@ -56,7 +56,7 @@ jobs:
         echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
 
     - name: Spin up docker instances
-      run: docker compose up -f docker-compose.yml --build -d
+      run: docker compose -f docker-compose.yml up --build -d
 
     - name: Wait for Services to Initialize
       run: sleep 120
