@@ -1,0 +1,16 @@
+services:
+  backend:
+    # Inject bind mount on host machine
+    volumes:
+      - ./backend:/app
+    # Run python app with hot-reloading
+    command: uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+
+  frontend:
+    # Inject host syatem frontend app using bind mount
+    volumes:
+      - ./react-app:/app
+      - /app/node_modules
+    environment:
+      - WATCHPACK_POLLING=true
+    command: npm run start

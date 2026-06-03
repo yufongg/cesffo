@@ -1,3 +1,4 @@
+argon2-cffi
 dotenv
 dynaconf
 fastapi
@@ -6,6 +7,13 @@ requests
 sqlmodel
 typer
 pydantic
+pydantic[email]
+psycopg2
 sqlalchemy
 jinja2
+
+bandit
 ruff
+pytest
+pytest-asyncio
+httpx2

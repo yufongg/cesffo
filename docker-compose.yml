@@ -14,13 +14,24 @@ services:
     ports:
       - "5000:5000" # Map port 5000 on the host to port 5000 in the container
     volumes:
-      - "./backend:/app"
+      - backend_src:/app:ro
+    environment:
+      DB_HOST: postgres_database
+      DB_NAME: ${POSTGRES_DB} # The name of the database to create
+      DB_USER: ${POSTGRES_USER} # A user for the database
+      DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
     depends_on:
-      - db # Ensure the 'db' service starts before the 'web' service
+      db: # Ensure the 'db' service starts before the 'web' service
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl", "-f", "http://localhost:5000/healthcheck"]
 
   # MySQL database service
   db:
-    image: postgres:15-alpine
+    build:
+      context: ./postgres # Build context is the 'postgres' directory
+      dockerfile: Dockerfile.postgres
     container_name: postgres_database
     ports:
       - "5432:5432" 
@@ -29,12 +40,19 @@ services:
     expose:
       - 5432
     environment:
-      DB_NAME: ${POSTGRES_DB} # The name of the database to create
-      DB_USER: ${POSTGRES_USER} # A user for the database
-      DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+      POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
+      POSTGRES_USER: postgres # A user for the database
+      POSTGRES_PASSWORD: ${POSTGRES_SECRET} # Password for the user
+      APP_USER: ${POSTGRES_USER}
+      APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-U", "${POSTGRES_USER}", "-d",  "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
   
   # React frontend service
   frontend:
@@ -47,7 +65,7 @@ services:
     ports:
       - "80:3000" 
     volumes:
-      - ./react-app:/app # Mount the React app directory for live reloading
+      - frontend_src:/app # Mount the React app directory for live reloading
       - /app/node_modules # Exclude node_modules from host mount to prevent issues
     depends_on:
       - backend # Ensure the web backend is running before the frontend starts
@@ -55,6 +73,8 @@ services:
 # Define named volumes (if used)
 volumes:
   db_data: # This will create a Docker volume named 'db_data'
+  backend_src:
+  frontend_src:
 
 networks:
   net:

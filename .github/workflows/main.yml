@@ -49,26 +49,27 @@ jobs:
 
     - name: Inject Mock Pipeline Env Variables
       run: |
-        echo "DB_USER=test_user" >> .env
-        echo "DB_PASSWORD=test_password_123" >> .env
-        echo "DB_NAME=finwise_test_db" >> .env
+        echo "POSTGRES_USER=test_user" >> .env
+        echo "POSTGRES_PASSWORD=test_password_123" >> .env
+        echo "POSTGRES_DB=finwise_test_db" >> .env
+        echo "POSTGRES_SECRET=password123" >> .env 
         echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
 
     - name: Spin up docker instances
-      run: docker-compose up --build -d
+      run: docker compose -f docker-compose.yml up --build -d
 
     - name: Wait for Services to Initialize
-      run: sleep 10
+      run: sleep 120
 
     - name: Execute Backend Pytest Suite
-      run: docker-compose exec -T backend-service pytest backend/tests
+      run: docker compose -f docker-compose.yml exec -T backend pytest ./tests
 
     - name: Execute Frontend Vitest Suite
-      run: docker-compose exec -T frontend-service npm run test:ci
+      run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
 
     - name: Graceful Teardown
       if: always()
-      run: docker-compose down -v
+      run: docker compose -f docker-compose.yml down -v
 
   # Deploy production code to AWS
   production-deployment:
