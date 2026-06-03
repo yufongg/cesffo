@@ -1,5 +1,5 @@
 skips: 
-  - ['B104'] # Allow hardcoded binding mappings to 0.0.0.0 inside secure containers
+  - 'B104' # Allow hardcoded binding mappings to 0.0.0.0 inside secure containers
 
 exclude_dirs:
   - ./tests
