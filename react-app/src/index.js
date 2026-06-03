@@ -178,17 +178,17 @@ import './index.css';
 //     name: 'Bad McFreshface',
 //   },
 // ]
-// //
-// var Person = React.createClass({
-//   render: function() {
-//     return (
-//       <li>
-//         <h2>{this.props.name}</h2>
-//         <a href={'mailto:' + this.props.email }>{this.props.email}</a>
-//       </li>
-//     )
-//   }
-// })
+//
+var Person = React.createClass({
+  render: function() {
+    return (
+      <li>
+        <h2>{this.props.name}</h2>
+        <a href={'mailto:' + this.props.email }>{this.props.email}</a>
+      </li>
+    )
+  }
+})
 //
 // var personElements = people
 //   .filter((person) => (person.email))
@@ -272,7 +272,7 @@ var Moaaz_num = 23
 var arr = [1, 2]
 var obj = {}
 
-var UIEl = <UIElement />
+// var UIEl = <UIElement />
 
 ReactDOM.render(
   <RootElement people={people}/>, document.getElementById('root')
@@ -282,7 +282,7 @@ ReactDOM.render(
 
 
 
-// ReactDOM.render(
-//   <App />,
-//   document.getElementById('root')
-// );
+ReactDOM.render(
+  <App />,
+  document.getElementById('root')
+);

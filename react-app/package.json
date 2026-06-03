@@ -24,8 +24,9 @@
     "start-win": "set PORT=80 && react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:ci":  "export PORT=80", 
+    "test:ci": "export PORT=80",
     "eject": "react-scripts eject",
+    "dev": "react-scripts start",
     "prod": "export $(cat .env | xargs) && react-scripts start"
   },
   "eslintConfig": {
