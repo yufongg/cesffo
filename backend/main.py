@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from db.db import engine, Base, get_db_session
 import model.models  # Must import models to register them on the metadata space
-
+from user.auth_router import router as auth_router
 # Generates all tables defined via 'Base' if they don't already exist in Postgres
 
 # cors_origins = [
@@ -49,6 +49,9 @@ app.mount("/static", StaticFiles(directory="./static"), name="static")
 
 # Configure Jinja2 templates for rendering HTML
 templates = Jinja2Templates(directory="./templates")
+
+
+app.include_router(auth_router)
 
 # Forum endpoints
 @app.get("/forum", response_class=HTMLResponse)

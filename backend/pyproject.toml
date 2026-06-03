@@ -3,3 +3,5 @@ pythonpath = "."
 addopts = [
     "--import-mode=importlib",
 ]
+
+python_functions = test_* *_test
