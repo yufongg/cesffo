@@ -25,7 +25,11 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "curl", "-f", "http://localhost:5000/healthcheck"]
+      # CMD-SHELL takes ONE shell string. python is guaranteed present in the image (curl is not).
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/healthcheck')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   # MySQL database service
   db:
@@ -49,7 +53,9 @@ services:
       # Persist MySQL data to a named volume or host directory
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready", "-U", "${POSTGRES_USER}", "-d",  "${POSTGRES_DB}"]
+      # Single shell string. Passing -U avoids pg_isready falling back to the
+      # 'root' OS user (which has no DB role) and spamming FATAL log lines.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 10s
       retries: 5
