@@ -18,8 +18,10 @@ class User(Base):
     password = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False, unique=True)
     auth_attempts = Column(Integer, default=0, nullable=False)
-    role = Column(String(50), default="Student", nullable=False) 
-    is_deleted = Column(Boolean, default=False, nullable=False) 
+    role = Column(String(50), default="student", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)        # admin can ban (False) / activate (True)
+    force_password_reset = Column(Boolean, default=False, nullable=False)  # set True after an admin password reset
+    is_deleted = Column(Boolean, default=False, nullable=False)      # soft-delete flag
 
     # Relationships
     # enrollments = relationship("CourseEnrollment", back_populates="student", cascade="all, delete-orphan")
