@@ -1,5 +1,5 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
 
@@ -179,34 +179,7 @@ import './index.css';
 //   },
 // ]
 //
-var Person = React.createClass({
-  render: function() {
-    return (
-      <li>
-        <h2>{this.props.name}</h2>
-        <a href={'mailto:' + this.props.email }>{this.props.email}</a>
-      </li>
-    )
-  }
-})
-//
-// var personElements = people
-//   .filter((person) => (person.email))
-//   .map((person) => (
-//     React.createElement(Person, { key: person.key, name: person.name, email: person.email })
-//   ))
-//
-// var rootElement =
-//   React.createElement('div', {},
-//     React.createElement('h1', {}, 'Contacts'),
-//       React.createElement('ul', {}, personElements)
-// )
-//
-// ReactDOM.render(
-//   rootElement, document.getElementById('root')
-// )
-
-// *************************************************************
+// Legacy React 15 `React.createClass` usage removed. Use ES6 classes or function components instead.
 
 var people = window.people = [
   {
@@ -225,8 +198,8 @@ var people = window.people = [
   },
 ]
 
-var Person = React.createClass({
-  render: function() {
+class Person extends React.Component {
+  render() {
     return (
       <li>
         <h2>{this.props.name}</h2>
@@ -234,11 +207,10 @@ var Person = React.createClass({
       </li>
     )
   }
-})
+}
 
-var People = React.createClass({
-
-  render: function() {
+class People extends React.Component {
+  render() {
     var personElements = this.props.people
       .filter((person) => (person.email))
       .map((person) => (
@@ -257,15 +229,15 @@ var People = React.createClass({
       </div>
     )
   }
-})
+}
 
-var RootElement = React.createClass({
-  render: function() {
+class RootElement extends React.Component {
+  render() {
     return (
       <People people={this.props.people}/>
     )
   }
-})
+}
 
 var Moaaz_string = 'string'
 var Moaaz_num = 23
@@ -274,15 +246,5 @@ var obj = {}
 
 // var UIEl = <UIElement />
 
-ReactDOM.render(
-  <RootElement people={people}/>, document.getElementById('root')
-)
-
-// *************************************************************
-
-
-
-ReactDOM.render(
-  <App />,
-  document.getElementById('root')
-);
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);

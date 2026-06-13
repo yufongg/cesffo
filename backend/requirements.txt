@@ -2,7 +2,8 @@ argon2-cffi
 dotenv
 dynaconf
 fastapi
-uvicorn
+uvicorn[standard]
+websockets
 requests
 sqlmodel
 typer
@@ -17,3 +18,7 @@ ruff
 pytest
 pytest-asyncio
 httpx2
+
+python-multipart
+bleach
+markdown
