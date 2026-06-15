@@ -10,7 +10,15 @@ from user.auth import hash_password
 SCHEMA_MIGRATIONS = [
     'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE',
     'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT FALSE',
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS xp INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
 ]
+
+# XP a learner earns for completing a course, by difficulty level.
+XP_BY_LEVEL = {"Beginner": 500, "Intermediate": 800, "Advanced": 1200}
+# Level threshold used to keep User.level in step with the dashboard's formula.
+XP_PER_LEVEL = 500
 
 
 def ensure_schema() -> None:
@@ -98,12 +106,17 @@ def get_or_create_category(session, spec) -> Category:
 
 
 def get_or_create_course(session, spec, instructor_id) -> Course:
+    xp_reward = XP_BY_LEVEL.get(spec["level"], 500)
     course = session.scalar(select(Course).where(Course.course_name == spec["name"]))
     if course:
+        # Backfill XP on courses seeded before the column existed.
+        if not getattr(course, "xp_reward", 0):
+            course.xp_reward = xp_reward
         return course
     course = Course(
         instructor_id=instructor_id,
         course_name=spec["name"],
+        xp_reward=xp_reward,
         # Ready for richer content later: text lessons + interactive quizzes.
         content={"summary": spec["summary"], "modules": []},
         tags=spec["tags"],
@@ -147,6 +160,16 @@ def seed() -> None:
             student_id = users[student_key].user_id
             for course_name, progress in enrolls:
                 get_or_create_enrollment(session, courses[course_name].course_id, student_id, progress)
+
+        # Derive each learner's XP/level from their (capped) progress so the
+        # leaderboard columns hold realistic, self-consistent data.
+        for student_key, enrolls in ENROLLMENTS.items():
+            total_xp = 0
+            for course_name, progress in enrolls:
+                reward = courses[course_name].xp_reward or 0
+                total_xp += round(min(max(progress, 0.0), 1.0) * reward)
+            users[student_key].xp = total_xp
+            users[student_key].level = total_xp // XP_PER_LEVEL + 1
         # context manager commits on exit
 
     print("\n  Seed complete.\n")
