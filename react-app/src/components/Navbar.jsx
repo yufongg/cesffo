@@ -1,5 +1,6 @@
 import React from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navbar() {
   // useLocation causes a re-render on every route change,
@@ -17,28 +18,44 @@ export default function Navbar() {
     navigate('/');
   }
 
-  if (!token) {
-    return (
-      <nav className="App-nav">
-        <Link to="/">Login</Link>
-        <Link to="/register">Register</Link>
-      </nav>
-    );
-  }
+  const navClass = ({ isActive }) =>
+    isActive ? 'navlink navlink--active' : 'navlink';
 
   return (
-    <nav className="App-nav">
-      <Link to="/updateProfile">Update Profile</Link>
-      {role === 'admin' && (
-        <>
-          <Link to="/adminAccount">Admin Account</Link>
-          <Link to="/admin/dashboard">Admin Dashboard</Link>
-          <Link to="/admin/users">Manage Users</Link>
-        </>
-      )}
-      <button onClick={handleLogout} style={{ cursor: 'pointer' }}>
-        Logout
-      </button>
-    </nav>
+    <header className="navbar">
+      <div className="container navbar__inner">
+        <Link to="/courses" className="brand" aria-label="Cesffo home">
+          <span className="brand__mark">C</span>
+          Cesffo
+        </Link>
+
+        <nav className="navbar__links" aria-label="Primary">
+          {!token ? (
+            <>
+              <NavLink to="/" end className={navClass}>Login</NavLink>
+              <Link to="/register" className="btn btn--primary btn--sm">Get started</Link>
+            </>
+          ) : (
+            <>
+              <NavLink to="/courses" className={navClass}>My Learning</NavLink>
+              <NavLink to="/marketplace" className={navClass}>Marketplace</NavLink>
+              <NavLink to="/updateProfile" className={navClass}>My Profile</NavLink>
+              {role === 'admin' && (
+                <>
+                  <span className="navbar__divider" aria-hidden="true" />
+                  <NavLink to="/admin/dashboard" className={navClass}>Dashboard</NavLink>
+                  <NavLink to="/admin/users" className={navClass}>Users</NavLink>
+                </>
+              )}
+              <span className="navbar__divider" aria-hidden="true" />
+              <button onClick={handleLogout} className="btn btn--ghost btn--sm">
+                Log out
+              </button>
+            </>
+          )}
+          <ThemeToggle />
+        </nav>
+      </div>
+    </header>
   );
 }
