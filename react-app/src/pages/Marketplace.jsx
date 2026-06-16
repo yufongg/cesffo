@@ -70,6 +70,9 @@ export default function Marketplace() {
     return `${n} ${n === 1 ? 'course' : 'courses'}`;
   }, [courses.length]);
 
+  const enrolledCourses = useMemo(() => courses.filter((c) => c.is_enrolled), [courses]);
+  const otherCourses = useMemo(() => courses.filter((c) => !c.is_enrolled), [courses]);
+
   return (
     <div className="page">
       <div className="container">
@@ -134,10 +137,29 @@ export default function Marketplace() {
           <>
             <p className="subtitle" style={{ marginBottom: '16px' }}>{resultLabel}</p>
 
-            { /* This creates a card for EACH course id found from the search */}
-            <div className="course-grid">
-              {courses.map((c) => <CourseCard key={c.course_id} course={c} />)}
-            </div>
+            {enrolledCourses.length > 0 && (
+              <section className="section">
+                <div className="section__head">
+                  <h2>Your courses</h2>
+                  <span className="count">{enrolledCourses.length} enrolled</span>
+                </div>
+                <div className="course-grid">
+                  {enrolledCourses.map((c) => <CourseCard key={c.course_id} course={c} />)}
+                </div>
+              </section>
+            )}
+
+            {otherCourses.length > 0 && (
+              <section className="section">
+                <div className="section__head">
+                  <h2>{enrolledCourses.length > 0 ? 'Discover more' : 'All courses'}</h2>
+                  <span className="count">{otherCourses.length} available</span>
+                </div>
+                <div className="course-grid">
+                  {otherCourses.map((c) => <CourseCard key={c.course_id} course={c} />)}
+                </div>
+              </section>
+            )}
           </>
         ) : (
           <div className="empty-state">
