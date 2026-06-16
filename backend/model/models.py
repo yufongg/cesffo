@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey, 
-    PrimaryKeyConstraint
+    Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey,
+    PrimaryKeyConstraint, UniqueConstraint, Text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -130,6 +130,143 @@ class Course(Base):
 
     # Relationships
     enrollments = relationship("CourseEnrollment", back_populates="course", cascade="all, delete-orphan")
+    modules = relationship("Module", back_populates="course", cascade="all, delete-orphan", order_by="Module.order_index")
+
+
+# --- MODULE MODEL ---
+class Module(Base):
+    __tablename__ = "module"
+
+    module_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    course_id = Column(UUID(as_uuid=True), ForeignKey("course.course_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)  # sanitized (nh3) HTML/rich text
+    order_index = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    course = relationship("Course", back_populates="modules")
+    reading_materials = relationship("ReadingMaterial", back_populates="module", cascade="all, delete-orphan", order_by="ReadingMaterial.order_index")
+    media_contents = relationship("MediaContent", back_populates="module", cascade="all, delete-orphan", order_by="MediaContent.order_index")
+    activities = relationship("InteractiveActivity", back_populates="module", cascade="all, delete-orphan", order_by="InteractiveActivity.order_index")
+
+
+# --- READING MATERIAL MODEL ---
+class ReadingMaterial(Base):
+    __tablename__ = "reading_material"
+
+    material_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    module_id = Column(UUID(as_uuid=True), ForeignKey("module.module_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)  # sanitized (nh3) HTML/rich text
+    order_index = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    module = relationship("Module", back_populates="reading_materials")
+
+
+# --- MEDIA CONTENT MODEL ---
+class MediaContent(Base):
+    __tablename__ = "media_content"
+
+    media_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    module_id = Column(UUID(as_uuid=True), ForeignKey("module.module_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    media_url = Column(String(2048), nullable=False)
+    media_type = Column(String(50), nullable=False)  # "video" | "image" | "audio" | "document"
+    order_index = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    module = relationship("Module", back_populates="media_contents")
+
+
+# --- INTERACTIVE ACTIVITY MODEL ---
+class InteractiveActivity(Base):
+    __tablename__ = "interactive_activity"
+
+    activity_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    module_id = Column(UUID(as_uuid=True), ForeignKey("module.module_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    activity_type = Column(String(30), nullable=False)  # "mcq_single" | "mcq_multi" | "short_answer"
+    prompt = Column(Text, nullable=False)  # sanitized (nh3) HTML/rich text
+
+    # Grading key for short-answer questions — server-side only, NEVER serialized
+    # to a student response. MCQ correctness lives on ActivityOption.is_correct.
+    correct_answers = Column(JSON, nullable=True)  # list[str], case/whitespace-insensitive match
+    order_index = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    module = relationship("Module", back_populates="activities")
+    options = relationship("ActivityOption", back_populates="activity", cascade="all, delete-orphan", order_by="ActivityOption.order_index")
+    submissions = relationship("ActivitySubmission", back_populates="activity", cascade="all, delete-orphan")
+
+
+# --- ACTIVITY OPTION MODEL (MCQ choices) ---
+class ActivityOption(Base):
+    __tablename__ = "activity_option"
+
+    option_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    activity_id = Column(UUID(as_uuid=True), ForeignKey("interactive_activity.activity_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    option_text = Column(String(1000), nullable=False)
+    is_correct = Column(Boolean, default=False, nullable=False)  # NEVER serialize to a student
+    order_index = Column(Integer, default=0, nullable=False)
+
+    # Relationships
+    activity = relationship("InteractiveActivity", back_populates="options")
+
+
+# --- ACTIVITY SUBMISSION MODEL ---
+class ActivitySubmission(Base):
+    __tablename__ = "activity_submission"
+
+    submission_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    activity_id = Column(UUID(as_uuid=True), ForeignKey("interactive_activity.activity_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True)
+    response = Column(JSON, nullable=False)  # {"option_ids": [hex,...]} or {"text": "..."}
+    is_correct = Column(Boolean, nullable=False)
+    score = Column(Float, default=0.0, nullable=False)
+    attempt_number = Column(Integer, default=1, nullable=False)
+    submitted_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+
+    # Relationships
+    activity = relationship("InteractiveActivity", back_populates="submissions")
+
+
+# --- MODULE PROGRESS MODEL (per student) ---
+class ModuleProgress(Base):
+    __tablename__ = "module_progress"
+
+    progress_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    module_id = Column(UUID(as_uuid=True), ForeignKey("module.module_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    completed = Column(Boolean, default=False, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("module_id", "student_id", name="uq_module_progress_module_student"),
+    )
+
+
+# --- AUDIT LOG MODEL (append-only; SR-11) ---
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    log_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True)
+    action = Column(String(100), nullable=False)            # e.g. "delete_course", "delete_module"
+    resource_type = Column(String(50), nullable=True)       # e.g. "course", "module", "activity"
+    resource_id = Column(UUID(as_uuid=True), nullable=True)
+    outcome = Column(String(20), nullable=False, default="success")  # "success" | "failure"
+    ip_address = Column(String(64), nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
 
 
 # --- COURSE ENROLLMENT MODEL ---

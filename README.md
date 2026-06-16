@@ -32,6 +32,7 @@ Seed some demo data once the DB is up:
 
 ```bash
 docker compose exec -T backend python seed.py
+docker compose exec -T backend python seed_course_content.py
 ```
 
 ---

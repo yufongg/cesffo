@@ -1,5 +1,7 @@
 # Environment secrets
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -7,6 +9,25 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Keys, certs, and credential dumps — never commit these
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.cer
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*credentials*.json
+*secrets*.json
+*.kdbx
+
+# Local Postgres data if ever bind-mounted instead of a named volume
+postgres-data/
+pgdata/
 
 
 # Text files

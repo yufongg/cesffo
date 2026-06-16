@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function BookIcon() {
   return (
@@ -23,6 +24,7 @@ export default function CourseCard({ course }) {
     progress,
   } = course;
 
+  const navigate = useNavigate();
   const pct = Math.max(0, Math.min(100, Math.round((progress ?? 0) * 100)));
   const completed = is_enrolled && pct >= 100;
 
@@ -65,7 +67,11 @@ export default function CourseCard({ course }) {
 
         <div className="course-card__foot">
           <span className="course-card__enrollments">{enrollment_count} enrolled</span>
-          <button type="button" className={`btn btn--sm ${is_enrolled ? 'btn--primary' : 'btn--secondary'}`}>
+          <button
+            type="button"
+            className={`btn btn--sm ${is_enrolled ? 'btn--primary' : 'btn--secondary'}`}
+            onClick={() => navigate(`/courses/${course.course_id}/learn`)}
+          >
             {cta}
           </button>
         </div>

@@ -1523,3 +1523,78 @@
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);
 }
+
+/* ----- Course learning page --------------------------------------------- */
+.module-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.module__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.module__head h3 {
+  margin: 0;
+}
+
+.module__description {
+  color: var(--color-text);
+  margin-bottom: 16px;
+}
+
+.reading-material {
+  margin-bottom: 20px;
+}
+
+.reading-material h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.media-content {
+  margin-bottom: 20px;
+}
+
+.media-content h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.quiz {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 20px;
+  margin-top: 8px;
+}
+
+.quiz-question__prompt {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.quiz-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.quiz-question input[type="text"] {
+  margin-bottom: 14px;
+}
