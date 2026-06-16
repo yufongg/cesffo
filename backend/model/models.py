@@ -18,6 +18,7 @@ class User(Base):
     password = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False, unique=True)
     auth_attempts = Column(Integer, default=0, nullable=False)
+    lockout_timestamp = Column(DateTime(timezone=True), nullable=True)
     role = Column(String(50), default="student", nullable=False)
     #? Added for admin functionality
     is_active = Column(Boolean, default=True, nullable=False)

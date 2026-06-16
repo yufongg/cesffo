@@ -15,10 +15,7 @@ from core import account_lockout
 from db.db import get_db_session
 from model.models import User
 
-# SECURITY: never ship a hard-coded fallback secret — a known key lets anyone
-# forge admin tokens. Require it from the environment. In dev (no env var set)
-# we generate a random per-process key: tokens won't survive a restart, which
-# is the correct, safe-by-default behaviour.
+
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
     if os.getenv("APP_ENV", "development") == "production":
@@ -27,7 +24,13 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+RESET_TOKEN_EXPIRE_MINUTES = 10
 MAX_AUTH_ATTEMPTS = 5
+
+# Token scopes keep a reset token from ever being used as a normal session token.
+SCOPE_ACCESS = "access"
+SCOPE_PASSWORD_RESET = "password_reset"
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -86,6 +89,13 @@ class PasswordPolicyError(Exception):
         self.message = message
 
 
+class PasswordResetRequiredError(Exception):
+
+    def __init__(self, reset_token: str):
+        super().__init__()
+        self.reset_token = reset_token
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password with Argon2id."""
     return _ph.hash(password)
@@ -126,7 +136,19 @@ def create_access_token(user_id: str, role: str) -> str:
     payload = {
         "sub": user_id,
         "role": role,
+        "scope": SCOPE_ACCESS,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_reset_token(user_id: str) -> str:
+    """A short-lived token authorising exactly one action: choosing a new
+    password. It carries no role and is rejected by every normal endpoint."""
+    payload = {
+        "sub": user_id,
+        "scope": SCOPE_PASSWORD_RESET,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -216,5 +238,46 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if _ph.check_needs_rehash(existing_user.password):
             existing_user.password = _ph.hash(password)
 
-        token = create_access_token(existing_user.user_id.hex, existing_user.role)
-        return token, existing_user.user_id, existing_user.role
+        # Capture what we need before the session commits and closes.
+        must_reset = existing_user.force_password_reset
+        uid = existing_user.user_id
+        role = existing_user.role
+
+
+    if must_reset:
+        raise PasswordResetRequiredError(create_reset_token(uid.hex))
+
+    token = create_access_token(uid.hex, role)
+    return token, uid, role
+
+
+async def change_password(
+    user_id: UUID, new_password: str, new_password_confirm: str
+) -> Tuple[str, UUID, str]:
+    """Rotate the password for a user who authenticated via a reset token.
+    Clears the force-reset flag and any lockout, then issues a real session."""
+    if new_password != new_password_confirm:
+        raise PasswordsMismatchError()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        # Same policy as registration (length, blocklist, not username/email).
+        validate_password_strength(new_password, username=user.username, email=user.email)
+
+        # Don't let them "rotate" straight back to the temporary password.
+        try:
+            _ph.verify(user.password, new_password)
+            raise PasswordPolicyError("New password must be different from the current one")
+        except exceptions.VerifyMismatchError:
+            pass  # good — the new password differs from the old one
+
+        user.password = hash_password(new_password)
+        user.force_password_reset = False
+        user.auth_attempts = 0
+        uid = user.user_id
+        role = user.role
+
+    return create_access_token(uid.hex, role), uid, role

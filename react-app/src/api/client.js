@@ -1,7 +1,3 @@
-// Thin fetch wrapper that attaches the JWT and normalizes errors.
-// Note: the token lives in localStorage for simplicity. The REAL access control
-// is server-side (require_admin on every admin endpoint); this header is just
-// how we present the caller's identity.
 
 export function getToken() {
   return localStorage.getItem('access_token');
