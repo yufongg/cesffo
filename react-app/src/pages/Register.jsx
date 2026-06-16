@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 
+function CheckIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
 // NOTE: this is convenience only — the server is the source of truth.
 function clientPasswordIssues(pw) {
   const issues = [];
@@ -64,7 +73,7 @@ export default function Register() {
       localStorage.setItem('access_token', data.access_token);
       localStorage.setItem('user_role', data.user_role);
       localStorage.setItem('user_id', data.user_id);
-      navigate('/updateProfile');
+      navigate('/courses');
     } catch {
       setError('Network error. Please try again.');
     } finally {
@@ -72,58 +81,76 @@ export default function Register() {
     }
   }
 
-  const inputStyle = { width: '100%', padding: '8px', boxSizing: 'border-box' };
-
   return (
-    <div className="App">
-      <div className="App-header">
-        <h2>Create Account</h2>
-      </div>
+    <div className="auth">
+      <aside className="auth__aside">
+        <span className="auth__aside-brand">
+          <span className="brand__mark">C</span>
+          Cesffo
+        </span>
 
-      <div style={{ maxWidth: '360px', margin: '40px auto', padding: '0 16px' }}>
-        <form onSubmit={handleSubmit} noValidate>
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="email" style={{ display: 'block', marginBottom: '4px' }}>Email</label>
-            <input id="email" type="email" value={form.email} onChange={update('email')}
-              placeholder="you@example.com" required autoComplete="email" style={inputStyle} />
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="username" style={{ display: 'block', marginBottom: '4px' }}>Username</label>
-            <input id="username" type="text" value={form.username} onChange={update('username')}
-              placeholder="Choose a username" required minLength={3} autoComplete="username" style={inputStyle} />
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="password" style={{ display: 'block', marginBottom: '4px' }}>Password</label>
-            <input id="password" type="password" value={form.password} onChange={update('password')}
-              placeholder="At least 8 characters" required autoComplete="new-password" style={inputStyle} />
-            <small style={{ color: '#666' }}>
-              At least 8 characters. Avoid common or easily guessed passwords.
-            </small>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="password_confirm" style={{ display: 'block', marginBottom: '4px' }}>Confirm Password</label>
-            <input id="password_confirm" type="password" value={form.password_confirm}
-              onChange={update('password_confirm')} placeholder="Re-enter your password" required
-              autoComplete="new-password" style={inputStyle} />
-          </div>
-
-          {error && (
-            <p role="alert" style={{ color: '#c0392b', marginBottom: '12px' }}>{error}</p>
-          )}
-
-          <button type="submit" disabled={loading}
-            style={{ width: '100%', padding: '10px', cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Creating account…' : 'Create Account'}
-          </button>
-        </form>
-
-        <p style={{ marginTop: '16px', textAlign: 'center' }}>
-          Already have an account? <Link to="/">Sign in</Link>
+        <h1 className="auth__headline">Start your financial literacy journey.</h1>
+        <p className="auth__sub">
+          Create a free account and get instant access to courses, tools, and
+          resources designed to make money simple.
         </p>
-      </div>
+
+        <ul className="auth__points">
+          <li><CheckIcon /> Free to join — no card required</li>
+          <li><CheckIcon /> Beginner-friendly, expert-built lessons</li>
+          <li><CheckIcon /> Track progress across every course</li>
+        </ul>
+      </aside>
+
+      <main className="auth__main">
+        <div className="auth__form">
+          <h2 className="auth__title">Create your account</h2>
+          <p className="auth__lead">Join Cesffo in under a minute.</p>
+
+          <form onSubmit={handleSubmit} noValidate>
+            <div className="field">
+              <label htmlFor="email" className="label">Email</label>
+              <input id="email" type="email" className="input" value={form.email}
+                onChange={update('email')} placeholder="you@example.com" required
+                autoComplete="email" />
+            </div>
+
+            <div className="field">
+              <label htmlFor="username" className="label">Username</label>
+              <input id="username" type="text" className="input" value={form.username}
+                onChange={update('username')} placeholder="Choose a username" required
+                minLength={3} autoComplete="username" />
+            </div>
+
+            <div className="field">
+              <label htmlFor="password" className="label">Password</label>
+              <input id="password" type="password" className="input" value={form.password}
+                onChange={update('password')} placeholder="At least 8 characters" required
+                autoComplete="new-password" />
+              <small className="field__hint">
+                At least 8 characters. Avoid common or easily guessed passwords.
+              </small>
+            </div>
+
+            <div className="field">
+              <label htmlFor="password_confirm" className="label">Confirm password</label>
+              <input id="password_confirm" type="password" className="input"
+                value={form.password_confirm} onChange={update('password_confirm')}
+                placeholder="Re-enter your password" required autoComplete="new-password" />
+            </div>
+
+            {error && <p role="alert" className="alert alert--error">{error}</p>}
+
+            <button type="submit" disabled={loading} className="btn btn--primary btn--block">
+              {loading ? 'Creating account…' : 'Create account'}
+            </button>
+          </form>
+
+          <p className="auth__alt">
+            Already have an account? <Link to="/">Sign in</Link>
+          </p>
+        </div>
+      </main>
     </div>
   );
 }

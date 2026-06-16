@@ -92,87 +92,110 @@ export default function AdminUsers() {
     });
   }
 
-  const cell = { padding: '8px 10px', borderBottom: '1px solid #eee', textAlign: 'left' };
-
   return (
-    <div className="App" style={{ maxWidth: '960px', margin: '0 auto', padding: '16px' }}>
-      <h2>User Management</h2>
-
-      {error && <p role="alert" style={{ color: '#c0392b' }}>{error}</p>}
-      {notice && <p style={{ color: '#27ae60' }}>{notice}</p>}
-
-      {tempPassword && (
-        <div style={{ border: '1px solid #f0ad4e', background: '#fcf8e3', padding: '12px', margin: '12px 0' }}>
-          <strong>One-time password for {tempPassword.username}:</strong>{' '}
-          <code>{tempPassword.password}</code>
-          <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
-            Copy it now and share over a secure channel — it will not be shown again.
-          </p>
-          <button onClick={() => setTempPassword(null)} style={{ marginTop: '6px' }}>Dismiss</button>
+    <div className="page">
+      <div className="container">
+        <div className="page-header">
+          <span className="eyebrow">Admin</span>
+          <h1>User management</h1>
+          <p className="subtitle">Create accounts, assign roles, and manage access.</p>
         </div>
-      )}
 
-      {/* Create user */}
-      <form onSubmit={createUser} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '16px 0' }}>
-        <input
-          type="email" placeholder="email" required value={newUser.email}
-          onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-        />
-        <input
-          type="text" placeholder="username" required minLength={3} value={newUser.username}
-          onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-        />
-        <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <button type="submit">Create user</button>
-      </form>
+        {error && <p role="alert" className="alert alert--error">{error}</p>}
+        {notice && <p className="alert alert--success">{notice}</p>}
 
-      {loading ? (
-        <p>Loading users…</p>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={cell}>Username</th>
-              <th style={cell}>Email</th>
-              <th style={cell}>Role</th>
-              <th style={cell}>Status</th>
-              <th style={cell}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.user_id}>
-                <td style={cell}>{u.username}</td>
-                <td style={cell}>{u.email}</td>
-                <td style={cell}>
-                  <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </td>
-                <td style={cell}>
-                  <span style={{ color: u.is_active ? '#27ae60' : '#c0392b' }}>
-                    {u.is_active ? 'Active' : 'Banned'}
-                  </span>
-                  {u.force_password_reset && (
-                    <span style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>(reset pending)</span>
-                  )}
-                </td>
-                <td style={cell}>
-                  <button onClick={() => toggleStatus(u)} style={{ marginRight: 6 }}>
-                    {u.is_active ? 'Ban' : 'Activate'}
-                  </button>
-                  <button onClick={() => resetPassword(u)}>Reset password</button>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr><td style={cell} colSpan={5}>No users found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      )}
+        {tempPassword && (
+          <div className="callout">
+            <strong>One-time password for {tempPassword.username}:</strong>
+            <code>{tempPassword.password}</code>
+            <span style={{ flexBasis: '100%', fontSize: '13px' }}>
+              Copy it now and share over a secure channel — it will not be shown again.
+            </span>
+            <button onClick={() => setTempPassword(null)} className="btn btn--secondary btn--sm">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Create user */}
+        <form onSubmit={createUser} className="toolbar">
+          <div className="field" style={{ flex: '1 1 200px' }}>
+            <label className="label" htmlFor="nu-email">Email</label>
+            <input id="nu-email" className="input" type="email" placeholder="email" required
+              value={newUser.email}
+              onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} />
+          </div>
+          <div className="field" style={{ flex: '1 1 160px' }}>
+            <label className="label" htmlFor="nu-username">Username</label>
+            <input id="nu-username" className="input" type="text" placeholder="username" required
+              minLength={3} value={newUser.username}
+              onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
+          </div>
+          <div className="field" style={{ flex: '0 1 150px' }}>
+            <label className="label" htmlFor="nu-role">Role</label>
+            <select id="nu-role" className="select" value={newUser.role}
+              onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
+              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <button type="submit" className="btn btn--primary">Create user</button>
+        </form>
+
+        {loading ? (
+          <div className="card"><div className="card__body"><p style={{ margin: 0, color: 'var(--color-muted)' }}>Loading users…</p></div></div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.user_id}>
+                    <td className="table__user">{u.username}</td>
+                    <td>{u.email}</td>
+                    <td>
+                      <select className="select" value={u.role}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        style={{ width: 'auto', minWidth: '130px' }}>
+                        {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <span className={`badge ${u.is_active ? 'badge--active' : 'badge--banned'}`}>
+                        {u.is_active ? 'Active' : 'Banned'}
+                      </span>
+                      {u.force_password_reset && (
+                        <span className="badge badge--note" style={{ marginLeft: 6 }}>reset pending</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button onClick={() => toggleStatus(u)}
+                          className={`btn btn--sm ${u.is_active ? 'btn--danger' : 'btn--secondary'}`}>
+                          {u.is_active ? 'Ban' : 'Activate'}
+                        </button>
+                        <button onClick={() => resetPassword(u)} className="btn btn--secondary btn--sm">
+                          Reset password
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr><td className="table__empty" colSpan={5}>No users found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

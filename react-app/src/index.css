@@ -1,9 +1,177 @@
+/* ==========================================================================
+   Cesffo — Design Tokens & Global Base
+   Visual direction: "Royal Finance" (royal blue + navy, gold accents)
+   ========================================================================== */
+
+:root {
+  /* Brand */
+  --color-primary: #1d4ed8;        /* royal blue-700 */
+  --color-primary-dark: #1e3a8a;   /* blue-900 (navy) */
+  --color-primary-hover: #1e40af;  /* blue-800 */
+  --color-primary-light: #3b82f6;  /* blue-500 */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+
+  --color-accent: #c8a13a;         /* royal gold */
+  --color-accent-dark: #9a7820;
+
+  /* Neutrals (cool, navy-leaning) */
+  --color-ink: #0f1f3d;            /* deep navy — headings */
+  --color-text: #334155;           /* slate-700 — body */
+  --color-muted: #64748b;          /* slate-500 — secondary */
+  --color-faint: #94a3b8;          /* slate-400 */
+  --color-border: #e2e8f0;         /* slate-200 */
+  --color-border-strong: #cbd5e1;  /* slate-300 */
+  --color-bg: #f7f9fc;             /* soft white-blue — page */
+  --color-surface: #ffffff;
+  --color-surface-alt: #eef2f9;    /* cool slate-100 */
+
+  /* Status */
+  --color-success: #15803d;
+  --color-success-bg: #f0fdf4;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-warning: #b45309;
+  --color-warning-bg: #fffbeb;
+
+  /* Semantic / theming aliases (overridden in dark mode) */
+  --color-link: var(--color-primary);
+  --surface-translucent: rgba(255, 255, 255, 0.85);
+  --footer-bg: #0c1733;            /* deep royal navy */
+  --footer-text: #c3cee4;
+  --footer-heading: #ffffff;
+  --footer-muted: #8c9bbd;
+  --footer-border: rgba(255, 255, 255, 0.1);
+
+  /* Typography */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Plus Jakarta Sans", var(--font-sans);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  /* Layout */
+  --container: 1120px;
+  --header-h: 68px;
+
+  color-scheme: light;
+}
+
+/* ----- Dark theme ------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-primary: #3b82f6;        /* blue-500 */
+  --color-primary-dark: #2563eb;
+  --color-primary-hover: #60a5fa;
+  --color-primary-light: #60a5fa;
+  --color-primary-50: rgba(59, 130, 246, 0.14);
+  --color-primary-100: rgba(59, 130, 246, 0.30);
+  --color-link: #7cb0ff;
+
+  --color-accent: #d8b54a;         /* gold reads brighter on dark */
+  --color-accent-dark: #b8941f;
+
+  --color-ink: #eef2fb;
+  --color-text: #cdd7ea;
+  --color-muted: #93a0bd;
+  --color-faint: #5d6b8a;
+  --color-border: #1d2742;
+  --color-border-strong: #334063;
+  --color-bg: #0a1124;             /* deep navy */
+  --color-surface: #111a30;
+  --color-surface-alt: #1a2440;
+
+  --color-success: #34d399;
+  --color-success-bg: rgba(16, 185, 129, 0.14);
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.14);
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 191, 36, 0.14);
+
+  --surface-translucent: rgba(17, 26, 48, 0.85);
+  --footer-bg: #060c1c;
+  --footer-text: #8c9bbd;
+  --footer-heading: #eef2fb;
+  --footer-muted: #5d6b8a;
+  --footer-border: rgba(255, 255, 255, 0.07);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ----- Reset ----------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Droid Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-div {
-  padding: 16px;
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  color: var(--color-ink);
+  line-height: 1.2;
+  margin: 0 0 0.5em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+a {
+  color: var(--color-link);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--color-link);
+  text-decoration: underline;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--color-surface-alt);
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary-light);
+  outline-offset: 2px;
+}
+
+img {
+  max-width: 100%;
+  display: block;
 }

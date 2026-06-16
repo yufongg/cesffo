@@ -17,6 +17,7 @@ from db.db import engine, Base, get_db_session
 import model.models  # Must import models to register them on the metadata space
 from user.auth_router import router as auth_router
 from user.admin_router import router as admin_router
+from course.course_router import router as course_router
 # Generates all tables defined via 'Base' if they don't already exist in Postgres
 
 cors_origins = [
@@ -27,19 +28,13 @@ cors_origins = [
 
 
 def ensure_schema():
-    """Idempotently add columns that create_all() cannot add to existing tables.
-
-    Base.metadata.create_all() only creates *missing tables* — it never ALTERs a
-    table that already exists in the persisted Postgres volume. So when a new
-    column is added to a model, queries fail with 'column ... does not exist'.
-    These ADD COLUMN IF NOT EXISTS statements are safe to run on every startup
-    (idempotent, no data loss) and keep the live schema in sync with the models.
-
-    NOTE: this is a lightweight stand-in. For production use Alembic migrations.
-    """
+    #! I added this incase to prevent model mismatch, this will only run on my branch.
     migrations = [
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE',
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT FALSE',
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS xp INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1',
+        'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
     ]
     with engine.begin() as conn:
         for statement in migrations:
@@ -81,6 +76,7 @@ templates = Jinja2Templates(directory="./templates")
 
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(course_router)
 
 # Forum endpoints
 @app.get("/forum", response_class=HTMLResponse)
