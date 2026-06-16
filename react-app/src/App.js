@@ -10,6 +10,7 @@ import ChangePassword from './pages/ChangePassword';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import CourseLearn from './pages/CourseLearn';
+import ModuleQuiz from './pages/ModuleQuiz';
 import UpdateProfile from './pages/UpdateProfile';
 import AdminAccount from './pages/Admin/AdminAccount';
 import AdminDashboard from './pages/Admin/AdminDashboard';
@@ -58,6 +59,15 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <CourseLearn />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/courses/:courseId/modules/:moduleId/quiz"
+                    element={
+                      <ProtectedRoute>
+                        <ModuleQuiz />
                       </ProtectedRoute>
                     }
                   />
