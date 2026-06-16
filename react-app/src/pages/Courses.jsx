@@ -4,7 +4,7 @@ import { apiFetch } from '../api/client';
 import DashboardSidebar from '../components/DashboardSidebar';
 import CourseCard from '../components/CourseCard';
 import PiggyProgress from '../components/PiggyProgress';
-import { useAuth } from './Security/RoleCheck';
+import { useAuth } from '../components/Security/RoleCheck';
 
 // --- Tier / XP model -------------------------------------------------------
 //? There is no XP/tier backend yet, so we derive a lightweight score from the

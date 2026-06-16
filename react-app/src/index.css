@@ -1,30 +1,35 @@
 /* ==========================================================================
    Cesffo — Design Tokens & Global Base
-   Visual direction: "Royal Finance" (royal blue + navy, gold accents)
+   Visual direction: "Porcelain & Cobalt" (blue-and-white china + antique gold)
+   Inspired by hand-painted delft porcelain: warm ivory body, deep cobalt
+   florals, royal-navy fittings, antique-gold engraving.
    ========================================================================== */
 
 :root {
-  /* Brand */
-  --color-primary: #1d4ed8;        /* royal blue-700 */
-  --color-primary-dark: #1e3a8a;   /* blue-900 (navy) */
-  --color-primary-hover: #1e40af;  /* blue-800 */
-  --color-primary-light: #3b82f6;  /* blue-500 */
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
+  /* Brand — cobalt blue (the painted florals) */
+  --color-primary: #1e3fb0;        /* delft cobalt */
+  --color-primary-dark: #15296b;   /* royal navy (grip / magazine) */
+  --color-primary-hover: #18348f;  /* deepened cobalt */
+  --color-primary-light: #3a5fd0;  /* brighter cobalt */
+  --color-primary-50: #eef1fc;     /* faintest porcelain-blue wash */
+  --color-primary-100: #dde4f8;
 
-  --color-accent: #c8a13a;         /* royal gold */
-  --color-accent-dark: #9a7820;
+  --color-accent: #c19a36;         /* antique gold (engraving) */
+  --color-accent-dark: #8f6f1d;
+  --gradient-gold: linear-gradient(135deg, #e8c873, #c19a36 52%, #9b7c27);
+  --gold-line: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  --gold-text: #806015;            /* gold that stays legible on ivory */
 
-  /* Neutrals (cool, navy-leaning) */
-  --color-ink: #0f1f3d;            /* deep navy — headings */
-  --color-text: #334155;           /* slate-700 — body */
-  --color-muted: #64748b;          /* slate-500 — secondary */
-  --color-faint: #94a3b8;          /* slate-400 */
-  --color-border: #e2e8f0;         /* slate-200 */
-  --color-border-strong: #cbd5e1;  /* slate-300 */
-  --color-bg: #f7f9fc;             /* soft white-blue — page */
-  --color-surface: #ffffff;
-  --color-surface-alt: #eef2f9;    /* cool slate-100 */
+  /* Neutrals (warm porcelain ivory) */
+  --color-ink: #15235a;            /* deep cobalt-navy — headings */
+  --color-text: #3c4255;           /* warm slate — body */
+  --color-muted: #6b7186;          /* secondary */
+  --color-faint: #9aa0b4;          /* placeholders / icons */
+  --color-border: #e9e2d3;         /* warm porcelain hairline */
+  --color-border-strong: #d8cfb9;  /* warm porcelain border */
+  --color-bg: #f7f3ea;             /* porcelain ivory — page */
+  --color-surface: #fffdf8;        /* warm white — cards */
+  --color-surface-alt: #f1ebdd;    /* cream — subtle fills */
 
   /* Status */
   --color-success: #15803d;
@@ -36,11 +41,11 @@
 
   /* Semantic / theming aliases (overridden in dark mode) */
   --color-link: var(--color-primary);
-  --surface-translucent: rgba(255, 255, 255, 0.85);
-  --footer-bg: #0c1733;            /* deep royal navy */
-  --footer-text: #c3cee4;
+  --surface-translucent: rgba(255, 253, 248, 0.85);
+  --footer-bg: #0e1f4d;            /* deep cobalt navy */
+  --footer-text: #c2cbe6;
   --footer-heading: #ffffff;
-  --footer-muted: #8c9bbd;
+  --footer-muted: #8a96b8;
   --footer-border: rgba(255, 255, 255, 0.1);
 
   /* Typography */
@@ -66,30 +71,32 @@
   color-scheme: light;
 }
 
-/* ----- Dark theme ------------------------------------------------------ */
+/* ----- Dark theme — "Cobalt Night" ------------------------------------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-primary: #3b82f6;        /* blue-500 */
-  --color-primary-dark: #2563eb;
-  --color-primary-hover: #60a5fa;
-  --color-primary-light: #60a5fa;
-  --color-primary-50: rgba(59, 130, 246, 0.14);
-  --color-primary-100: rgba(59, 130, 246, 0.30);
-  --color-link: #7cb0ff;
+  --color-primary: #5a7fe8;        /* bright cobalt on dark */
+  --color-primary-dark: #3a5fd0;
+  --color-primary-hover: #7d9bf0;
+  --color-primary-light: #7d9bf0;
+  --color-primary-50: rgba(90, 127, 232, 0.14);
+  --color-primary-100: rgba(90, 127, 232, 0.30);
+  --color-link: #93b0ff;
 
-  --color-accent: #d8b54a;         /* gold reads brighter on dark */
-  --color-accent-dark: #b8941f;
+  --color-accent: #d9b85a;         /* gold reads brighter on dark */
+  --color-accent-dark: #b8942f;
+  --gradient-gold: linear-gradient(135deg, #f1d588, #d9b85a 52%, #b8942f);
+  --gold-text: #e3c074;            /* bright gold for dark surfaces */
 
-  --color-ink: #eef2fb;
-  --color-text: #cdd7ea;
-  --color-muted: #93a0bd;
-  --color-faint: #5d6b8a;
-  --color-border: #1d2742;
-  --color-border-strong: #334063;
-  --color-bg: #0a1124;             /* deep navy */
-  --color-surface: #111a30;
-  --color-surface-alt: #1a2440;
+  --color-ink: #eef1fb;            /* porcelain white */
+  --color-text: #cbd3ea;
+  --color-muted: #91a0c4;
+  --color-faint: #5c6a90;
+  --color-border: #1d2c52;
+  --color-border-strong: #324269;
+  --color-bg: #0a1330;             /* deep cobalt navy (grip) */
+  --color-surface: #111d3f;
+  --color-surface-alt: #1a2750;
 
   --color-success: #34d399;
   --color-success-bg: rgba(16, 185, 129, 0.14);
@@ -98,11 +105,11 @@
   --color-warning: #fbbf24;
   --color-warning-bg: rgba(251, 191, 36, 0.14);
 
-  --surface-translucent: rgba(17, 26, 48, 0.85);
-  --footer-bg: #060c1c;
-  --footer-text: #8c9bbd;
-  --footer-heading: #eef2fb;
-  --footer-muted: #5d6b8a;
+  --surface-translucent: rgba(17, 29, 63, 0.85);
+  --footer-bg: #060e24;
+  --footer-text: #8a96b8;
+  --footer-heading: #eef1fb;
+  --footer-muted: #5c6a90;
   --footer-border: rgba(255, 255, 255, 0.07);
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -156,6 +163,8 @@ a {
 a:hover {
   color: var(--color-link);
   text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+  text-underline-offset: 2px;
 }
 
 code {

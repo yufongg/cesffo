@@ -5,16 +5,20 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
+from core.rate_limit import limiter
 
-# import json
-# import os
-# import re
-# import requests
 import uvicorn
 from sqlalchemy import text
 
 from db.db import engine, Base, get_db_session
-import model.models  # Must import models to register them on the metadata space
+import model.models  
+
+
+#! IMPORT YOUR ROUTERS HERE
+
 from user.auth_router import router as auth_router
 from user.admin_router import router as admin_router
 from course.course_router import router as course_router
@@ -53,6 +57,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -62,30 +71,19 @@ app.add_middleware(
 )
 
 
+
 # --- Mount Static Files ---
 # This tells FastAPI to serve files from the "static" directory
 # under the URL path "/static".
 # The `name="static"` argument is crucial as it creates the named route
 # that Jinja2's `url_for` (or similar) will look for.
-app.mount("/static", StaticFiles(directory="./static"), name="static")
 
 
-# Configure Jinja2 templates for rendering HTML
-templates = Jinja2Templates(directory="./templates")
 
 
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(course_router)
-
-# Forum endpoints
-@app.get("/forum", response_class=HTMLResponse)
-async def getForumHome(request: Request):
-    """
-    Renders a minified version of the app to test
-    """
-    return templates.TemplateResponse("test.html", {"request": request})
-
 
 
 # --- 
@@ -105,15 +103,6 @@ async def healthcheck():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "unhealthy"}
         )
-
-
-@app.get("/test", response_class=HTMLResponse)
-async def test(request: Request):
-    """
-    Renders a minified version of the app to test
-    """
-    return templates.TemplateResponse("test.html", {"request": request})
-
 
 
 if __name__ == "__main__":

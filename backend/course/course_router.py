@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func, or_, and_
 
@@ -153,7 +153,7 @@ def _build_card(course, *, counts, enrolled_ids, progress_map, instructor_name) 
 
 # --- Endpoints ---
 @router.get("/overview", response_model=OverviewResponse)
-async def overview(current_user: dict = Depends(get_current_user)):
+async def overview(request: Request, current_user: dict = Depends(get_current_user)):
     """Data for the post-login landing page: the user's enrolled (owned) courses
     plus popular courses they are *not* enrolled in."""
     uid = _parse_uid(current_user)
@@ -181,7 +181,7 @@ async def overview(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/scores", response_model=ScoresResponse)
-async def scores(current_user: dict = Depends(get_current_user)):
+async def scores(request: Request, current_user: dict = Depends(get_current_user)):
     """Leaderboard for the current user: the top learners on their level, plus
     the user's own standing so they always know where they rank."""
     uid = _parse_uid(current_user)
@@ -226,6 +226,7 @@ async def scores(current_user: dict = Depends(get_current_user)):
 @router.get("", response_model=List[CourseCard])
 @router.get("/", response_model=List[CourseCard])
 async def list_courses(
+    request: Request,
     search: Optional[str] = Query(None, max_length=MAX_SEARCH_LEN),
     tag: Optional[str] = Query(None, max_length=MAX_TAG_LEN),
     sort: str = Query("popular"),

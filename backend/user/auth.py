@@ -3,12 +3,14 @@ import re
 import secrets
 from argon2 import PasswordHasher, exceptions
 from datetime import datetime, timedelta, timezone
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from jose import JWTError, jwt
 from pydantic import EmailStr
 from sqlalchemy import select
 from typing import Tuple
 from uuid import UUID
+
+from core import account_lockout
 
 from db.db import get_db_session
 from model.models import User
@@ -180,7 +182,6 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
     with get_db_session() as session:
         existing_user = session.scalar(select(User).where(User.email == email))
 
-        # Timing-safe enumeration guard: if the user is missing, still run an
         # Argon2 verify against a dummy hash so the response time matches the
         # "wrong password" path, then fail with the same generic error.
         if not existing_user:
@@ -195,7 +196,9 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
             raise InactiveAccountError()
 
         if existing_user.auth_attempts >= MAX_AUTH_ATTEMPTS:
-            raise AccountLockedError()
+            if account_lockout(existing_user.username):
+                raise AccountLockedError()
+
 
         try:
             _ph.verify(existing_user.password, password)

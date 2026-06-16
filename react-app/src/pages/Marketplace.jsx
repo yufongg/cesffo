@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../api/client';
 import CourseCard from '../components/CourseCard';
-import { sanitizeSearch, MAX_SEARCH_LENGTH } from './Security/Sanitize';
+import { sanitizeSearch, MAX_SEARCH_LENGTH } from '../components/Security/Sanitize';
 
 function SearchIcon() {
   return (

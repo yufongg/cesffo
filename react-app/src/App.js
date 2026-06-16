@@ -15,7 +15,7 @@ import AdminUsers from './pages/Admin/Users';
 import NotFound from './pages/NotFound';
 
 // Security Imports
-import { RoleCheck, ProtectedRoute } from './pages/Security/RoleCheck';
+import { RoleCheck, ProtectedRoute } from './components/Security/RoleCheck';
 
 export default function App() {
     return (

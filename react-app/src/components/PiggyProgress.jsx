@@ -31,8 +31,8 @@ export default function PiggyProgress({ pct = 0, level }) {
             <ellipse cx="64" cy="60" rx="48" ry="36" />
           </clipPath>
           <linearGradient id="piggyCoin" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#f6e27a" />
-            <stop offset="1" stopColor="#c8a13a" />
+            <stop offset="0" stopColor="#f3dd84" />
+            <stop offset="1" stopColor="#c19a36" />
           </linearGradient>
         </defs>
 

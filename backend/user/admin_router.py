@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 
@@ -98,6 +98,7 @@ def _count_active_admins(session, exclude_id: Optional[UUID] = None) -> int:
 # --- Endpoints ---
 @router.get("/users", response_model=List[AdminUserView])
 async def list_users(
+    request: Request,
     include_deleted: bool = False,
     admin: dict = Depends(require_admin),
 ):
@@ -114,12 +115,11 @@ async def list_users(
 #^ ====
 
 @router.post("/users", response_model=TempPasswordResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(request: CreateUserRequest, admin: dict = Depends(require_admin)):
-    """Admin-create a user. A strong temporary password is generated server-side
-    and returned exactly once; it is never chosen by the admin."""
-    role = validate_role(request.role)
-    email = request.email.strip().lower()
-    username = request.username.strip()
+async def create_user(request: Request, req: CreateUserRequest, admin: dict = Depends(require_admin)):
+
+    role = validate_role(req.role)
+    email = req.email.strip().lower()
+    username = req.username.strip()
 
     temp_password = generate_temp_password()
     hashed = hash_password(temp_password)
@@ -147,9 +147,9 @@ async def create_user(request: CreateUserRequest, admin: dict = Depends(require_
 
 
 @router.patch("/users/{user_id}/role", response_model=AdminUserView)
-async def assign_role(user_id: str, request: AssignRoleRequest, admin: dict = Depends(require_admin)):
+async def assign_role(request: Request, user_id: str, req: AssignRoleRequest, admin: dict = Depends(require_admin)):
     uid = parse_uuid(user_id)
-    role = validate_role(request.role)
+    role = validate_role(req.role)
 
     with get_db_session() as session:
         user = retrieve_user(session, uid)
@@ -166,23 +166,23 @@ async def assign_role(user_id: str, request: AssignRoleRequest, admin: dict = De
 
 
 @router.patch("/users/{user_id}/status", response_model=AdminUserView)
-async def set_status(user_id: str, request: SetStatusRequest, admin: dict = Depends(require_admin)):
+async def set_status(request: Request, user_id: str, req: SetStatusRequest, admin: dict = Depends(require_admin)):
 
     uid = parse_uuid(user_id)
 
     #! Cannot ban themselves
-    if not request.is_active and admin["user_id"] == user_id:
+    if not req.is_active and admin["user_id"] == user_id:
         raise HTTPException(status_code=409, detail="You cannot ban your own account")
 
     with get_db_session() as session:
         user = retrieve_user(session, uid)
 
         #! Cannot ban admin accounts
-        if not request.is_active and user.role == ROLE_ADMIN:
+        if not req.is_active and user.role == ROLE_ADMIN:
             raise HTTPException(status_code=409, detail="Cannot ban admin accounts")
 
-        user.is_active = request.is_active
-        if request.is_active:
+        user.is_active = req.is_active
+        if req.is_active:
             user.auth_attempts = 0  # unlock on (re)activation
         session.commit()
         session.refresh(user)
@@ -190,7 +190,7 @@ async def set_status(user_id: str, request: SetStatusRequest, admin: dict = Depe
 
 
 @router.post("/users/{user_id}/reset-password", response_model=TempPasswordResponse)
-async def reset_password(user_id: str, admin: dict = Depends(require_admin)):
+async def reset_password(request: Request, user_id: str, admin: dict = Depends(require_admin)):
     """Reset (not set) a user's password to a new strong random value.
     The admin never chooses the value; it is returned once for secure handoff."""
     uid = parse_uuid(user_id)
