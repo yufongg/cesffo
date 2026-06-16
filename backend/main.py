@@ -19,6 +19,9 @@ import model.models
 
 from user.auth_router import router as auth_router
 from user.admin_router import router as admin_router
+from course.course_router import router as course_router
+from course.instructor_router import router as instructor_router
+from course.learn_router import router as learn_router
 # Generates all tables defined via 'Base' if they don't already exist in Postgres
 
 cors_origins = [
@@ -90,6 +93,9 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(course_router)
+app.include_router(instructor_router)
+app.include_router(learn_router)
 
 
 # --- 

@@ -57,6 +57,22 @@ async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
+async def require_instructor(current_user: dict = Depends(get_current_user)) -> dict:
+    """Deny-by-default gate for course-authoring endpoints (SR-03). Admins are
+    also allowed through so staff can manage any course if needed."""
+    if current_user["role"] not in (ROLE_INSTRUCTOR, ROLE_ADMIN):
+        raise HTTPException(status_code=403, detail="Instructor access required")
+    return current_user
+
+
+async def require_instructor(current_user: dict = Depends(get_current_user)) -> dict:
+    """Deny-by-default gate for course-authoring endpoints (SR-03). Admins are
+    also allowed through so staff can manage any course if needed."""
+    if current_user["role"] not in (ROLE_INSTRUCTOR, ROLE_ADMIN):
+        raise HTTPException(status_code=403, detail="Instructor access required")
+    return current_user
+
+
 async def get_reset_subject(token: str = Depends(oauth2_scheme)) -> str:
 
     try:

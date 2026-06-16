@@ -12,6 +12,7 @@ pydantic[email]
 psycopg2
 sqlalchemy
 jinja2
+nh3
 
 bandit
 ruff
