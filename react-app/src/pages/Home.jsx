@@ -30,6 +30,13 @@ export default function Home() {
         }
         return;
       }
+      // Account on a temporary password: the backend returns a scoped reset
+      // token (no session yet). Stash it and route into the password-change flow.
+      if (data.force_password_reset) {
+        sessionStorage.setItem('reset_token', data.reset_token);
+        navigate('/change-password');
+        return;
+      }
 
       localStorage.setItem('access_token', data.access_token);
       localStorage.setItem('user_role', data.user_role);

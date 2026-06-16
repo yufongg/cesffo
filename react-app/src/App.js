@@ -6,6 +6,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Home from './pages/Home';
 import Register from './pages/Register';
+import ChangePassword from './pages/ChangePassword';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import UpdateProfile from './pages/UpdateProfile';
@@ -29,6 +30,8 @@ export default function App() {
                   {/* /login is an alias for the home login form */}
                   <Route path="/login" element={<Home />} />
                   <Route path="/register" element={<Register />} />
+                  {/* Forced password change — self-guards via the reset token. */}
+                  <Route path="/change-password" element={<ChangePassword />} />
 
                   {/* Default landing for any authenticated user. */}
                   <Route

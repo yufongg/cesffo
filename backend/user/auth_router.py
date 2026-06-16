@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from pydantic import BaseModel, EmailStr, Field
@@ -8,10 +9,10 @@ from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
-    register, login, decode_access_token, parse_user_id,
+    register, login, change_password, decode_access_token, parse_user_id,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
-    MIN_PASSWORD_LENGTH, ROLE_ADMIN,
+    PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, SCOPE_PASSWORD_RESET,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -23,20 +24,25 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     try:
         payload = decode_access_token(token)
-        user_id: str = payload.get("sub")
-        role: str = payload.get("role")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
-        
-        with get_db_session() as session:
-            user = session.scalar(select(User).where(User.user_id == user_id))
-            if not user.is_active or user.is_deleted:
-                raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
-
-
-        return {"user_id": user_id, "role": role}
     except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # A password-reset token authorises ONLY /change-password — never a session.
+    if payload.get("scope") == SCOPE_PASSWORD_RESET:
+        raise HTTPException(status_code=401, detail="Password reset required before continuing")
+
+    user_id: str = payload.get("sub")
+    if not user_id:
         raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if user is None or not user.is_active or user.is_deleted:
+            raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
+
+        role = user.role
+
+    return {"user_id": user_id, "role": role}
 
 
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
@@ -49,6 +55,20 @@ async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
             if not user.is_active or user.is_deleted or user.role != "admin":
                 raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
     return current_user
+
+
+async def get_reset_subject(token: str = Depends(oauth2_scheme)) -> str:
+
+    try:
+        payload = decode_access_token(token)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired reset token")
+    if payload.get("scope") != SCOPE_PASSWORD_RESET:
+        raise HTTPException(status_code=403, detail="A password-reset token is required here")
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Invalid reset token")
+    return sub
 
 # --- Request/Response Schemas ---
 class UserRegistrationSchema(BaseModel):
@@ -77,6 +97,10 @@ class UserProfileResponse(BaseModel):
     email: EmailStr
     role: str
 
+class ChangePasswordSchema(BaseModel):
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
+    new_password_confirm: str
+
 
 # --- Endpoints ---
 @router.post("/register", response_model=AuthResponseSchema, status_code=status.HTTP_201_CREATED)
@@ -101,6 +125,16 @@ async def register_user(request: Request, req: UserRegistrationSchema):
 async def login_user(request: Request, req: UserLoginSchema):
     try:
         access_token, user_id, role = await login(req.email, req.password)
+    except PasswordResetRequiredError as e:
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "force_password_reset": True,
+                "reset_token": e.reset_token,
+                "token_type": "reset",
+            },
+        )
     except AccountLockedError:
         raise HTTPException(
             status_code=423,
@@ -123,10 +157,35 @@ async def get_profile(request: Request, current_user: dict = Depends(get_current
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid token subject")
 
+
     with get_db_session() as session:
         user = session.scalar(select(User).where(User.user_id == uid))
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return UserProfileResponse(username=user.username, email=user.email, role=user.role)
 
-    if not user:
+
+@router.post("/change-password", response_model=AuthResponseSchema)
+async def change_password_route(
+    request: Request,
+    req: ChangePasswordSchema,
+    sub: str = Depends(get_reset_subject),
+):
+
+    try:
+        uid = parse_user_id(sub)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid reset token subject")
+
+    try:
+        access_token, user_id, role = await change_password(
+            uid, req.new_password, req.new_password_confirm
+        )
+    except PasswordsMismatchError:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    except PasswordPolicyError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return UserProfileResponse(username=user.username, email=user.email, role=user.role)
+    return AuthResponseSchema(access_token=access_token, user_id=user_id.hex, user_role=role)
