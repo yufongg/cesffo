@@ -2,91 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 
-function ActivityBlock({ activity, onGraded }) {
-  const isMcq = activity.activity_type === 'mcq_single' || activity.activity_type === 'mcq_multi';
-  const [selected, setSelected] = useState(new Set());
-  const [text, setText] = useState('');
-  const [result, setResult] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+function ModuleSection({ courseId, module }) {
+  const hasQuiz = module.activities.length > 0;
 
-  const toggleOption = (optionId) => {
-    setSelected((prev) => {
-      const next = new Set(activity.activity_type === 'mcq_single' ? [] : prev);
-      if (prev.has(optionId) && activity.activity_type === 'mcq_multi') {
-        next.delete(optionId);
-      } else {
-        next.add(optionId);
-      }
-      return next;
-    });
-  };
-
-  const submit = async () => {
-    setError('');
-    setSubmitting(true);
-    try {
-      const body = isMcq ? { option_ids: [...selected] } : { text };
-      const response = await apiFetch(`/api/v1/activities/${activity.activity_id}/submit`, {
-        method: 'POST',
-        body,
-      });
-      setResult(response);
-      onGraded();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const canSubmit = isMcq ? selected.size > 0 : text.trim().length > 0;
-
-  return (
-    <div className="quiz-question">
-      <p className="quiz-question__prompt">{activity.prompt}</p>
-
-      {isMcq ? (
-        <div className="quiz-options">
-          {activity.options.map((opt) => (
-            <label key={opt.option_id} className="quiz-option">
-              <input
-                type={activity.activity_type === 'mcq_single' ? 'radio' : 'checkbox'}
-                name={activity.activity_id}
-                checked={selected.has(opt.option_id)}
-                onChange={() => toggleOption(opt.option_id)}
-              />
-              <span>{opt.option_text}</span>
-            </label>
-          ))}
-        </div>
-      ) : (
-        <input
-          type="text"
-          className="input"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Type your answer…"
-          maxLength={2000}
-        />
-      )}
-
-      {error && <p role="alert" className="alert alert--error">{error}</p>}
-
-      {result && (
-        <p role="status" className={`alert ${result.is_correct ? 'alert--success' : 'alert--warning'}`}>
-          {result.is_correct ? 'Correct!' : 'Not quite — try again.'} (attempt {result.attempt_number})
-        </p>
-      )}
-
-      <button type="button" className="btn btn--secondary btn--sm" onClick={submit} disabled={!canSubmit || submitting}>
-        {submitting ? 'Submitting…' : result ? 'Try again' : 'Submit answer'}
-      </button>
-    </div>
-  );
-}
-
-function ModuleSection({ module, onGraded }) {
   return (
     <div className="card module">
       <div className="card__body">
@@ -120,12 +38,12 @@ function ModuleSection({ module, onGraded }) {
           </div>
         ))}
 
-        {module.activities.length > 0 && (
-          <div className="quiz">
-            {module.activities.map((a) => (
-              <ActivityBlock key={a.activity_id} activity={a} onGraded={onGraded} />
-            ))}
-          </div>
+        {hasQuiz && (
+          // Quiz lives on its own page — read the content here first, then
+          // move on to take the quiz once you're done.
+          <Link to={`/courses/${courseId}/modules/${module.module_id}/quiz`} className="btn btn--primary btn--sm">
+            {module.completed ? 'Review quiz' : 'Take quiz'}
+          </Link>
         )}
       </div>
     </div>
@@ -184,7 +102,7 @@ export default function CourseLearn() {
 
         <div className="module-list">
           {course.modules.map((m) => (
-            <ModuleSection key={m.module_id} module={m} onGraded={load} />
+            <ModuleSection key={m.module_id} courseId={courseId} module={m} />
           ))}
         </div>
       </div>
