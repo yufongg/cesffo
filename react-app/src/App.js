@@ -9,6 +9,7 @@ import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
+import CoursePreview from './pages/CoursePreview';
 import CourseLearn from './pages/CourseLearn';
 import ModuleQuiz from './pages/ModuleQuiz';
 import UpdateProfile from './pages/UpdateProfile';
@@ -50,6 +51,16 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <Marketplace />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Read-only syllabus for non-enrolled students; gateway to enrolling. */}
+                  <Route
+                    path="/courses/:courseId/preview"
+                    element={
+                      <ProtectedRoute>
+                        <CoursePreview />
                       </ProtectedRoute>
                     }
                   />

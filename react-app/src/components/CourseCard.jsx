@@ -29,6 +29,11 @@ export default function CourseCard({ course }) {
   const completed = is_enrolled && pct >= 100;
 
   const cta = is_enrolled ? (completed ? 'Review' : 'Continue') : 'View course';
+  // Enrolled learners jump straight into the content; everyone else gets the
+  // read-only preview/syllabus where they can choose to enroll.
+  const target = is_enrolled
+    ? `/courses/${course.course_id}/learn`
+    : `/courses/${course.course_id}/preview`;
 
   return (
     <article className="course-card">
@@ -70,7 +75,7 @@ export default function CourseCard({ course }) {
           <button
             type="button"
             className={`btn btn--sm ${is_enrolled ? 'btn--primary' : 'btn--secondary'}`}
-            onClick={() => navigate(`/courses/${course.course_id}/learn`)}
+            onClick={() => navigate(target)}
           >
             {cta}
           </button>

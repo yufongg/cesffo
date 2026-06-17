@@ -2,16 +2,17 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from db.db import get_db_session
 from model.models import (
-    Course, CourseEnrollment, Module,
-    InteractiveActivity, ActivitySubmission, ModuleProgress,
+    Course, CourseEnrollment, Module, ReadingMaterial,
+    InteractiveActivity, ActivitySubmission, ModuleProgress, User,
 )
 from user.auth_router import get_current_user
+from core.rate_limit import limiter
 
 router = APIRouter(prefix="/api/v1", tags=["Learning"])
 
@@ -347,6 +348,153 @@ async def submit_activity(activity_id: str, request: SubmitActivityRequest, curr
             score=submission.score,
             attempt_number=submission.attempt_number,
         )
+
+
+
+def _course_summary(course: Course) -> Optional[str]:
+    content = course.content if isinstance(course.content, dict) else {}
+    summary = content.get("summary")
+    return summary if isinstance(summary, str) else None
+
+
+def _course_level(course: Course) -> Optional[str]:
+    prereq = course.prerequirements if isinstance(course.prerequirements, dict) else {}
+    level = prereq.get("level")
+    return level if isinstance(level, str) else None
+
+
+def _course_tags(course: Course) -> List[str]:
+    return [str(t) for t in course.tags if isinstance(t, (str, int, float))] if isinstance(course.tags, list) else []
+
+
+class PreviewModule(BaseModel):
+    module_id: str
+    title: str
+    description: Optional[str] = None
+    order_index: int
+    # Table-of-contents only — titles + counts, never the material bodies or
+    # any quiz content. Lets a shopper judge the syllabus without unlocking it.
+    reading_material_titles: List[str] = []
+    activity_count: int = 0
+
+
+class CoursePreview(BaseModel):
+    course_id: str
+    course_name: str
+    instructor: Optional[str] = None
+    summary: Optional[str] = None
+    level: Optional[str] = None
+    tags: List[str] = []
+    xp_reward: int = 0
+    enrollment_count: int = 0
+    module_count: int = 0
+    total_activities: int = 0
+    is_enrolled: bool = False
+    modules: List[PreviewModule] = []
+
+
+class EnrollResult(BaseModel):
+    course_id: str
+    enrolled: bool
+    already_enrolled: bool = False
+    progress: float = 0.0
+
+
+@router.get("/courses/{course_id}/preview", response_model=CoursePreview)
+async def preview_course(course_id: str, current_user: dict = Depends(get_current_user)):
+    """Public-to-logged-in-users syllabus outline for a course. Safe for students
+    who are NOT enrolled: deliberately omits reading bodies, quiz prompts,
+    options and the answer key so it can never be used to read paid content."""
+    student_id = _parse_uid(current_user)
+    cid = _to_uuid(course_id)
+    with get_db_session() as session:
+        course = session.scalar(select(Course).where(Course.course_id == cid))
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+
+        instructor_name = session.scalar(
+            select(User.username).where(User.user_id == course.instructor_id)
+        )
+        enrollment_count = session.scalar(
+            select(func.count())
+            .select_from(CourseEnrollment)
+            .where(CourseEnrollment.course_id == cid, CourseEnrollment.dropped.is_(False))
+        ) or 0
+        is_enrolled = session.scalar(
+            select(CourseEnrollment).where(
+                CourseEnrollment.course_id == cid,
+                CourseEnrollment.student_id == student_id,
+                CourseEnrollment.dropped.is_(False),
+            )
+        ) is not None
+
+        modules = session.scalars(
+            select(Module).where(Module.course_id == cid).order_by(Module.order_index)
+        ).all()
+
+        preview_modules = [
+            PreviewModule(
+                module_id=m.module_id.hex,
+                title=m.title,
+                description=m.description,  # server-sanitized (nh3) at write time
+                order_index=m.order_index,
+                reading_material_titles=[rm.title for rm in m.reading_materials],
+                activity_count=len(m.activities),
+            )
+            for m in modules
+        ]
+
+        return CoursePreview(
+            course_id=course.course_id.hex,
+            course_name=course.course_name,
+            instructor=instructor_name,
+            summary=_course_summary(course),
+            level=_course_level(course),
+            tags=_course_tags(course),
+            xp_reward=course.xp_reward or 0,
+            enrollment_count=enrollment_count,
+            module_count=len(preview_modules),
+            total_activities=sum(pm.activity_count for pm in preview_modules),
+            is_enrolled=is_enrolled,
+            modules=preview_modules,
+        )
+
+
+@router.post("/courses/{course_id}/enroll", response_model=EnrollResult)
+@limiter.limit("30/minute")
+async def enroll_course(course_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Enroll the *authenticated* user in a course. The student id is always
+    derived from the JWT — never trusted from the request body — so a caller can
+    only ever enroll themselves. Idempotent and re-activates a dropped row."""
+    student_id = _parse_uid(current_user)
+    cid = _to_uuid(course_id)
+    with get_db_session() as session:
+        course = session.scalar(select(Course).where(Course.course_id == cid))
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+
+        existing = session.scalar(
+            select(CourseEnrollment).where(
+                CourseEnrollment.course_id == cid,
+                CourseEnrollment.student_id == student_id,
+            )
+        )
+        if existing is not None:
+            if not existing.dropped:
+                return EnrollResult(
+                    course_id=cid.hex, enrolled=True, already_enrolled=True, progress=existing.progress,
+                )
+            # Re-enrolling after dropping: reactivate, keep prior progress.
+            existing.dropped = False
+            session.commit()
+            return EnrollResult(course_id=cid.hex, enrolled=True, progress=existing.progress)
+
+        enrollment = CourseEnrollment(
+            course_id=cid, student_id=student_id, progress=0.0, dropped=False,
+        )
+        session.add(enrollment)
+        session.commit()
+        return EnrollResult(course_id=cid.hex, enrolled=True, progress=0.0)
 
 
 @router.get("/activities/{activity_id}/submissions", response_model=List[SubmissionHistoryEntry])

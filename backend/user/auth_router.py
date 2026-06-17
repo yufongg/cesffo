@@ -48,6 +48,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != ROLE_ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
     with get_db_session() as session:
             user = session.scalar(select(User).where(User.user_id == current_user["user_id"]))
 
