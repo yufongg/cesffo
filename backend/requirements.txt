@@ -3,7 +3,8 @@ python-jose[cryptography]
 dotenv
 dynaconf
 fastapi
-uvicorn
+uvicorn[standard]
+websockets
 requests
 sqlmodel
 typer
@@ -20,4 +21,6 @@ pytest
 pytest-asyncio
 httpx2
 slowapi
-
+python-multipart
+bleach
+markdown

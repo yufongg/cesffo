@@ -82,16 +82,21 @@ class Post(Base):
     # Self-referential loop for nested parent-child comment threads
     parent_id = Column(UUID(as_uuid=True), ForeignKey('post.post_id', ondelete='SET NULL', onupdate="CASCADE"), nullable=True)
     
-    content = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    is_edited = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), onupdate=lambda:datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     thread = relationship("Thread", back_populates="posts")
+    parent = relationship("Post", remote_side=[post_id], back_populates="replies")
+    replies = relationship("Post", back_populates="parent")
     
     # Hierarchy mappings
     likes = relationship("PostLikes", back_populates="post", cascade="all, delete-orphan")
 
+    attachments = relationship("PostAttachment", back_populates="post", cascade="all, delete-orphan")
+    reports = relationship("PostReport", back_populates="post", cascade="all, delete-orphan")
 
 # --- POST LIKES MODEL ---
 class PostLikes(Base):
@@ -267,6 +272,39 @@ class AuditLog(Base):
     details = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
 
+# --- POST ATTACHMENT MODEL ---
+class PostAttachment(Base):
+    __tablename__ = "post_attachment"
+
+    attachment_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+
+    file_name = Column(String(255), nullable=False)
+    file_url = Column(String(500), nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    file_size = Column(Integer, nullable=True)
+
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    post = relationship("Post", back_populates="attachments")
+
+
+# --- POST REPORT MODEL ---
+class PostReport(Base):
+    __tablename__ = "post_report"
+
+    report_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    reporter_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True)
+
+    reason = Column(String(500), nullable=False)
+    status = Column(String(50), default="pending", nullable=False)
+    reviewed_by = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    post = relationship("Post", back_populates="reports")
 
 # --- COURSE ENROLLMENT MODEL ---
 class CourseEnrollment(Base):
@@ -284,7 +322,24 @@ class CourseEnrollment(Base):
     course = relationship("Course", back_populates="enrollments")
     # student = relationship("User", back_populates="enrollments")
 
+# --- NOTIFICATION MODEL ---
+class Notification(Base):
+    __tablename__ = "notification"
 
+    notification_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    recipient_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    actor_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True)
+
+    thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=True)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=True)
+
+    notification_type = Column(String(50), nullable=False)
+    message = Column(String(500), nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
 # --- CART MODEL --- 
 class Cart(Base):
     __tablename__ = "carts"
