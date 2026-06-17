@@ -11,6 +11,7 @@ import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import CoursePreview from './pages/CoursePreview';
 import CourseLearn from './pages/CourseLearn';
+import Forum from './pages/Forum';
 import ModuleQuiz from './pages/ModuleQuiz';
 import UpdateProfile from './pages/UpdateProfile';
 import AdminAccount from './pages/Admin/AdminAccount';
@@ -79,6 +80,15 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <ModuleQuiz />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/forums"
+                    element={
+                      <ProtectedRoute>
+                        <Forum />
                       </ProtectedRoute>
                     }
                   />

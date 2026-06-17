@@ -2,13 +2,22 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter, Depends, File, Form, HTTPException, Request,
+    UploadFile, WebSocket, WebSocketDisconnect, status,
+)
+from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from db.db import get_db_session
-from model.models import Category, Notification, Post, PostAttachment, Thread
+from model.models import Category, Notification, Post, PostAttachment, Thread, User
+from user.auth import ROLE_ADMIN, SCOPE_ACCESS, decode_access_token
+from user.auth_router import get_current_user
+from common.audit import log_action
+from core.rate_limit import limiter
 from .schemas import (
     CategoryResponse,
     MarkNotificationReadRequest,
@@ -18,7 +27,6 @@ from .schemas import (
     UpdatePostRequest,
     UpdateThreadRequest,
 )
-from .seed import seed_forum_demo_data
 from .utils import (
     notification_to_response,
     post_to_response,
@@ -29,6 +37,34 @@ from .utils import (
 from .websocket import manager
 
 router = APIRouter(prefix="/api/v1/forum", tags=["Discussion Forum"])
+
+MAX_TITLE_LEN = 255
+MAX_CONTENT_LEN = 10000
+
+
+# --- Auth / ownership helpers -----------------------------------------------
+def _parse_uid(current_user: dict) -> UUID:
+    try:
+        return UUID(current_user["user_id"])
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+
+
+def _is_admin(current_user: dict) -> bool:
+    return current_user.get("role") == ROLE_ADMIN
+
+
+def _require_owner_or_admin(owner_id: Optional[UUID], current_user: dict) -> None:
+    """Authorization gate: only the resource's author (or an admin) may mutate it.
+    Anonymous/legacy rows with no owner are admin-only to be safe."""
+    if _is_admin(current_user):
+        return
+    if owner_id is None or owner_id != _parse_uid(current_user):
+        raise HTTPException(status_code=403, detail="You can only modify your own content")
+
+
+def _client_ip(request: Request) -> Optional[str]:
+    return request.client.host if request.client else None
 
 
 def make_slug(title: str) -> str:
@@ -45,10 +81,9 @@ def get_original_post(session, thread_id: uuid.UUID) -> Optional[Post]:
     )
 
 
+# --- Read endpoints (auth required, consistent with the rest of the app) -----
 @router.get("/categories", response_model=List[CategoryResponse])
-async def list_categories() -> List[CategoryResponse]:
-    seed_forum_demo_data()
-
+async def list_categories(current_user: dict = Depends(get_current_user)) -> List[CategoryResponse]:
     with get_db_session() as session:
         categories = session.scalars(
             select(Category)
@@ -78,7 +113,10 @@ async def list_categories() -> List[CategoryResponse]:
 
 
 @router.get("/threads/{thread_id}/posts", response_model=List[PostResponse])
-async def list_thread_posts(thread_id: uuid.UUID) -> List[PostResponse]:
+async def list_thread_posts(
+    thread_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+) -> List[PostResponse]:
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
         if not thread:
@@ -94,15 +132,19 @@ async def list_thread_posts(thread_id: uuid.UUID) -> List[PostResponse]:
         return [post_to_response(post) for post in posts]
 
 
+# --- Thread CRUD -------------------------------------------------------------
 @router.post("/categories/{category_id}/threads", response_model=ThreadResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 async def create_thread(
+    request: Request,
     category_id: uuid.UUID,
-    title: str = Form(...),
-    content: str = Form(...),
+    title: str = Form(..., min_length=3, max_length=MAX_TITLE_LEN),
+    content: str = Form(..., min_length=1, max_length=MAX_CONTENT_LEN),
     files: Optional[List[UploadFile]] = File(default=None),
+    current_user: dict = Depends(get_current_user),
 ) -> ThreadResponse:
+    uid = _parse_uid(current_user)
     title = title.strip()
-
     if len(title) < 3:
         raise HTTPException(status_code=400, detail="Thread title must be at least 3 characters")
 
@@ -114,14 +156,13 @@ async def create_thread(
         base_slug = make_slug(title)
         slug = base_slug
         counter = 1
-
         while session.scalar(select(Thread).where(Thread.slug == slug)):
             counter += 1
             slug = f"{base_slug}-{counter}"
 
         thread = Thread(
             category_id=category.category_id,
-            creator_id=None,
+            creator_id=uid,
             title=title,
             slug=slug,
         )
@@ -130,7 +171,7 @@ async def create_thread(
 
         original_post = Post(
             thread_id=thread.thread_id,
-            creator_id=None,
+            creator_id=uid,
             parent_id=None,
             content=sanitize_content(content),
         )
@@ -142,9 +183,6 @@ async def create_thread(
         now = datetime.now(timezone.utc)
         thread.updated_at = now
         original_post.updated_at = now
-
-        session.add(thread)
-        session.add(original_post)
         session.flush()
 
         response = thread_to_response(thread)
@@ -153,7 +191,6 @@ async def create_thread(
         "event": "thread_created",
         "thread": response.model_dump(mode="json"),
     })
-
     return response
 
 
@@ -161,9 +198,9 @@ async def create_thread(
 async def update_thread(
     thread_id: uuid.UUID,
     request: UpdateThreadRequest,
+    current_user: dict = Depends(get_current_user),
 ) -> ThreadResponse:
     title = request.title.strip()
-
     if len(title) < 3:
         raise HTTPException(status_code=400, detail="Thread title must be at least 3 characters")
 
@@ -173,9 +210,10 @@ async def update_thread(
             .where(Thread.thread_id == thread_id)
             .options(selectinload(Thread.posts).selectinload(Post.attachments))
         )
-
         if not thread:
             raise HTTPException(status_code=404, detail="Thread not found")
+
+        _require_owner_or_admin(thread.creator_id, current_user)
 
         if thread.is_locked:
             raise HTTPException(status_code=403, detail="Thread is locked")
@@ -185,16 +223,12 @@ async def update_thread(
             raise HTTPException(status_code=404, detail="Original post not found")
 
         now = datetime.now(timezone.utc)
-
         thread.title = title
         thread.updated_at = now
 
         original_post.content = sanitize_content(request.content)
         original_post.is_edited = True
         original_post.updated_at = now
-
-        session.add(thread)
-        session.add(original_post)
         session.flush()
 
         response = thread_to_response(thread)
@@ -204,26 +238,33 @@ async def update_thread(
         "event": "thread_updated",
         "thread": response.model_dump(mode="json"),
     })
-
     await manager.broadcast({
         "event": "post_updated",
         "thread_id": response.thread_id,
         "post": post_response.model_dump(mode="json"),
     })
-
     return response
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_thread(thread_id: uuid.UUID) -> None:
+async def delete_thread(
+    thread_id: uuid.UUID,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+) -> None:
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
-
         if not thread:
             raise HTTPException(status_code=404, detail="Thread not found")
 
+        _require_owner_or_admin(thread.creator_id, current_user)
+
         deleted_thread_id = thread.thread_id.hex
         session.delete(thread)
+        log_action(
+            session, user_id=_parse_uid(current_user), action="delete_thread",
+            resource_type="thread", resource_id=thread_id, ip_address=_client_ip(request),
+        )
 
     await manager.broadcast({
         "event": "thread_deleted",
@@ -231,25 +272,27 @@ async def delete_thread(thread_id: uuid.UUID) -> None:
     })
 
 
-# Kept for teammate/backward compatibility. Your scope should use thread CRUD above, not replies.
+# --- Post (reply) CRUD -------------------------------------------------------
 @router.post("/threads/{thread_id}/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def create_post(
+    request: Request,
     thread_id: uuid.UUID,
-    content: str = Form(...),
+    content: str = Form(..., min_length=1, max_length=MAX_CONTENT_LEN),
     files: Optional[List[UploadFile]] = File(default=None),
+    current_user: dict = Depends(get_current_user),
 ) -> PostResponse:
+    uid = _parse_uid(current_user)
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
-
         if not thread:
             raise HTTPException(status_code=404, detail="Thread not found")
-
         if thread.is_locked:
             raise HTTPException(status_code=403, detail="Thread is locked")
 
         post = Post(
             thread_id=thread.thread_id,
-            creator_id=None,
+            creator_id=uid,
             parent_id=None,
             content=sanitize_content(content),
         )
@@ -261,9 +304,6 @@ async def create_post(
         now = datetime.now(timezone.utc)
         post.updated_at = now
         thread.updated_at = now
-
-        session.add(post)
-        session.add(thread)
         session.flush()
 
         response = post_to_response(post)
@@ -273,7 +313,6 @@ async def create_post(
         "thread_id": response.thread_id,
         "post": response.model_dump(mode="json"),
     })
-
     return response
 
 
@@ -281,6 +320,7 @@ async def create_post(
 async def update_post(
     post_id: uuid.UUID,
     request: UpdatePostRequest,
+    current_user: dict = Depends(get_current_user),
 ) -> PostResponse:
     with get_db_session() as session:
         post = session.scalar(
@@ -288,15 +328,14 @@ async def update_post(
             .where(Post.post_id == post_id)
             .options(selectinload(Post.attachments))
         )
-
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
+
+        _require_owner_or_admin(post.creator_id, current_user)
 
         post.content = sanitize_content(request.content)
         post.is_edited = True
         post.updated_at = datetime.now(timezone.utc)
-
-        session.add(post)
         session.flush()
 
         response = post_to_response(post)
@@ -306,14 +345,16 @@ async def update_post(
         "thread_id": response.thread_id,
         "post": response.model_dump(mode="json"),
     })
-
     return response
 
 
 @router.post("/posts/{post_id}/attachments", response_model=PostResponse)
+@limiter.limit("30/minute")
 async def add_post_attachments(
+    request: Request,
     post_id: uuid.UUID,
     files: Optional[List[UploadFile]] = File(default=None),
+    current_user: dict = Depends(get_current_user),
 ) -> PostResponse:
     with get_db_session() as session:
         post = session.scalar(
@@ -321,46 +362,43 @@ async def add_post_attachments(
             .where(Post.post_id == post_id)
             .options(selectinload(Post.attachments))
         )
-
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
+
+        _require_owner_or_admin(post.creator_id, current_user)
 
         await save_attachments(session, post, files)
 
         post.updated_at = datetime.now(timezone.utc)
-        session.add(post)
         session.flush()
-
-        updated_post = session.scalar(
-            select(Post)
-            .where(Post.post_id == post_id)
-            .options(selectinload(Post.attachments))
-        )
-
-        response = post_to_response(updated_post)
+        session.refresh(post)
+        response = post_to_response(post)
 
     await manager.broadcast({
         "event": "post_updated",
         "thread_id": response.thread_id,
         "post": response.model_dump(mode="json"),
     })
-
     return response
 
 
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post_attachment(attachment_id: uuid.UUID) -> None:
+async def delete_post_attachment(
+    attachment_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+) -> None:
     with get_db_session() as session:
         attachment = session.scalar(
             select(PostAttachment).where(PostAttachment.attachment_id == attachment_id)
         )
-
         if not attachment:
             raise HTTPException(status_code=404, detail="Attachment not found")
 
         post = session.get(Post, attachment.post_id)
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
+
+        _require_owner_or_admin(post.creator_id, current_user)
 
         thread_id = post.thread_id.hex
         post_id = post.post_id
@@ -373,7 +411,6 @@ async def delete_post_attachment(attachment_id: uuid.UUID) -> None:
             .where(Post.post_id == post_id)
             .options(selectinload(Post.attachments))
         )
-
         response = post_to_response(updated_post)
 
     await manager.broadcast({
@@ -384,15 +421,24 @@ async def delete_post_attachment(attachment_id: uuid.UUID) -> None:
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: uuid.UUID) -> None:
+async def delete_post(
+    post_id: uuid.UUID,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+) -> None:
     with get_db_session() as session:
         post = session.get(Post, post_id)
-
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
 
+        _require_owner_or_admin(post.creator_id, current_user)
+
         thread_id = post.thread_id.hex
         session.delete(post)
+        log_action(
+            session, user_id=_parse_uid(current_user), action="delete_post",
+            resource_type="post", resource_id=post_id, ip_address=_client_ip(request),
+        )
 
     await manager.broadcast({
         "event": "post_deleted",
@@ -401,33 +447,72 @@ async def delete_post(post_id: uuid.UUID) -> None:
     })
 
 
+# --- Notifications (recipient-scoped) ---------------------------------------
 @router.get("/notifications", response_model=List[NotificationResponse])
-async def list_notifications() -> List[NotificationResponse]:
-    # Notifications are kept for future login/RBAC integration.
-    # Since forum user identity is removed for now, return an empty list.
-    return []
+async def list_notifications(current_user: dict = Depends(get_current_user)) -> List[NotificationResponse]:
+    uid = _parse_uid(current_user)
+    with get_db_session() as session:
+        rows = session.scalars(
+            select(Notification)
+            .where(Notification.recipient_id == uid)
+            .order_by(Notification.created_at.desc())
+        ).all()
+        return [notification_to_response(n) for n in rows]
 
 
 @router.patch("/notifications/{notification_id}", response_model=NotificationResponse)
 async def update_notification(
     notification_id: uuid.UUID,
     request: MarkNotificationReadRequest,
+    current_user: dict = Depends(get_current_user),
 ) -> NotificationResponse:
+    uid = _parse_uid(current_user)
     with get_db_session() as session:
         notification = session.get(Notification, notification_id)
-
         if not notification:
             raise HTTPException(status_code=404, detail="Notification not found")
 
-        notification.is_read = request.is_read
-        session.add(notification)
-        session.flush()
+        # IDOR guard: a user may only update notifications addressed to them.
+        if notification.recipient_id != uid and not _is_admin(current_user):
+            raise HTTPException(status_code=403, detail="Not your notification")
 
+        notification.is_read = request.is_read
+        session.flush()
         return notification_to_response(notification)
+
+
+# --- WebSocket (token-authenticated live updates) ---------------------------
+def _authenticate_ws_token(token: Optional[str]) -> bool:
+    """Validate a JWT passed as a query param (browsers can't set WS headers).
+    Returns True only for a live access-scope token of an active, non-deleted
+    user."""
+    if not token:
+        return False
+    try:
+        payload = decode_access_token(token)
+    except JWTError:
+        return False
+    if payload.get("scope") != SCOPE_ACCESS:
+        return False
+    sub = payload.get("sub")
+    if not sub:
+        return False
+    try:
+        uid = UUID(sub)
+    except (ValueError, TypeError):
+        return False
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == uid))
+        return bool(user and user.is_active and not user.is_deleted)
 
 
 @router.websocket("/ws")
 async def forum_websocket(websocket: WebSocket) -> None:
+    token = websocket.query_params.get("token")
+    if not _authenticate_ws_token(token):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await manager.connect(websocket)
     try:
         while True:

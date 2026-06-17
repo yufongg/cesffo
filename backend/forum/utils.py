@@ -1,60 +1,77 @@
-import html
+import re
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, UploadFile
 
-from model.models import Notification, Post, PostAttachment, Thread, User
+from model.models import Notification, Post, PostAttachment, Thread
+from common.sanitize import sanitize_html
 from .schemas import AttachmentResponse, NotificationResponse, PostResponse, ThreadResponse
 
-try:
-    import nh3
-except Exception:  # pragma: no cover - fallback if dependency was not installed yet
-    nh3 = None
-
-UPLOAD_DIR = Path("uploads/forum")
+# Uploads live under a single, server-owned directory. Resolve it once so we can
+# verify every write stays inside it (defence-in-depth against path traversal).
+UPLOAD_DIR = (Path("uploads") / "forum").resolve()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_MIME_PREFIXES = ("image/",)
-MAX_FILE_SIZE = 3 * 1024 * 1024  # 3 MB
+# Allow-list of image types, keyed by the MIME we detect from the file's *actual*
+# bytes -> the extension we assign. The client-supplied content-type and filename
+# are never trusted for storage (both are trivially forged).
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+MAX_FILE_SIZE = 5 * 1024 * 1024   # 5 MB per image (matches the client validator)
+MAX_FILES_PER_POST = 5
+MAX_FILENAME_LENGTH = 120
 
 
 def sanitize_content(content: str) -> str:
-    """Allow limited rich-text HTML while reducing stored XSS risk."""
-    content = content.strip()
+    """Strip to the project-wide SR-09 allow-list and reject empty content.
+
+    Uses the same nh3 sanitizer as the course-authoring surface so forum posts
+    can never carry script/style/event-handler/iframe payloads.
+    """
+    content = (content or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="Post content cannot be empty")
-
-    allowed_tags = {
-        "b", "strong", "i", "em", "u", "p", "br", "ul", "ol", "li",
-        "blockquote", "code", "pre", "a", "span"
-    }
-    allowed_attributes = {
-        "a": {"href", "title", "target", "rel"},
-        "span": {"class"},
-    }
-
-    if nh3 is not None:
-        return nh3.clean(content, tags=allowed_tags, attributes=allowed_attributes)
-
-    # Safe fallback: escape everything if nh3 is unavailable.
-    return html.escape(content)
+    cleaned = sanitize_html(content)
+    # nh3 can legitimately reduce a markup-only payload (e.g. "<script>..</script>")
+    # to nothing — treat that as empty rather than storing a blank post.
+    if not cleaned.strip():
+        raise HTTPException(status_code=400, detail="Post content cannot be empty")
+    return cleaned
 
 
-def get_current_user(session, user_id: Optional[str]) -> User:
-    """Temporary auth helper for the forum module until group auth integration is completed."""
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-User-ID header")
-    try:
-        parsed_user_id = uuid.UUID(user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid X-User-ID header") from exc
+def safe_display_name(raw: Optional[str]) -> str:
+    """A clean, human-readable name for display/logging only — never used for the
+    on-disk path. Drops directories, control chars and anything exotic."""
+    if not raw:
+        return "image"
+    base = re.split(r"[\\/]", raw)[-1]
+    base = re.sub(r"[\x00-\x1f\x7f]", "", base)        # control chars
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", base)       # collapse exotic chars
+    base = base.lstrip(".")                             # no leading dots (hidden files)
+    base = base[:MAX_FILENAME_LENGTH].strip()
+    return base or "image"
 
-    user = session.get(User, parsed_user_id)
-    if not user or user.is_deleted:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user")
-    return user
+
+def detect_image_mime(data: bytes) -> Optional[str]:
+    """Identify an image strictly from its magic bytes. Returns the canonical
+    MIME for an allow-listed type, or None for anything else."""
+    if len(data) < 12:
+        return None
+    if data[0:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[0:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[0:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def attachment_to_response(attachment: PostAttachment) -> AttachmentResponse:
@@ -112,28 +129,54 @@ def notification_to_response(notification: Notification) -> NotificationResponse
 
 
 async def save_attachments(session, post: Post, files: Optional[List[UploadFile]]) -> None:
+    """Validate and persist image attachments for a post.
+
+    Security: the file type is decided by its magic bytes (not the client-sent
+    content-type), the on-disk name is a server-generated UUID with an extension
+    derived from the detected type, and the write target is verified to stay
+    inside UPLOAD_DIR. Count and per-file size are both capped.
+    """
     if not files:
         return
 
-    for file in files:
-        if not file.filename:
-            continue
-        if not file.content_type or not file.content_type.startswith(ALLOWED_MIME_PREFIXES):
-            raise HTTPException(status_code=400, detail="Only image uploads are allowed")
+    real_files = [f for f in files if f and f.filename]
+    if not real_files:
+        return
+    if len(real_files) > MAX_FILES_PER_POST:
+        raise HTTPException(
+            status_code=400, detail=f"At most {MAX_FILES_PER_POST} images may be attached"
+        )
 
+    for file in real_files:
         data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Empty file is not allowed")
         if len(data) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail="Image file exceeds 3 MB limit")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image exceeds the {MAX_FILE_SIZE // (1024 * 1024)} MB limit",
+            )
 
-        suffix = Path(file.filename).suffix.lower()
-        safe_file_name = f"{uuid.uuid4().hex}{suffix}"
-        target_path = UPLOAD_DIR / safe_file_name
+        detected_mime = detect_image_mime(data)
+        if detected_mime is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Only JPEG, PNG, GIF or WebP images are allowed",
+            )
+
+        extension = ALLOWED_IMAGE_TYPES[detected_mime]
+        stored_name = f"{uuid.uuid4().hex}.{extension}"
+        target_path = (UPLOAD_DIR / stored_name).resolve()
+        # Defence-in-depth: a generated UUID name can't escape the dir, but verify.
+        if target_path.parent != UPLOAD_DIR:
+            raise HTTPException(status_code=400, detail="Invalid upload path")
+
         target_path.write_bytes(data)
 
         session.add(PostAttachment(
             post_id=post.post_id,
-            file_name=file.filename,
-            file_url=f"/uploads/forum/{safe_file_name}",
-            mime_type=file.content_type,
+            file_name=safe_display_name(file.filename),
+            file_url=f"/uploads/forum/{stored_name}",
+            mime_type=detected_mime,   # store the detected type, not the client's
             file_size=len(data),
         ))
