@@ -75,11 +75,6 @@ app.add_middleware(
 
 
 
-# --- Mount Static Files ---
-# This tells FastAPI to serve files from the "static" directory
-# under the URL path "/static".
-# The `name="static"` argument is crucial as it creates the named route
-# that Jinja2's `url_for` (or similar) will look for.
 
 
 
@@ -89,6 +84,7 @@ app.include_router(admin_router)
 app.include_router(course_router)
 app.include_router(instructor_router)
 app.include_router(learn_router)
+
 
 
 # --- 
