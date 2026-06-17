@@ -1,9 +1,4 @@
-"""End-to-end test for the FR-06/FR-07 demo-content seed (seed_course_content.py).
 
-Requires a live database (same convention as tests/database_test.py) — run via
-the dockerized integration suite: `docker compose exec -T backend pytest tests`.
-Assumes seed.py has already populated the base courses/users/enrollments.
-"""
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -11,7 +6,7 @@ from sqlalchemy import select
 from main import app
 from db.db import get_db_session
 from model.models import Course, Module, User
-from seed_course_content import seed_course_content
+from seed import seed_course_content
 
 client = TestClient(app)
 
