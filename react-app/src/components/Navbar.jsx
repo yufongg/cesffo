@@ -39,6 +39,7 @@ export default function Navbar() {
             <>
               <NavLink to="/courses" className={navClass}>My Learning</NavLink>
               <NavLink to="/marketplace" className={navClass}>Marketplace</NavLink>
+              <NavLink to="/forums" className={navClass}>Forums</NavLink>
               <NavLink to="/updateProfile" className={navClass}>My Profile</NavLink>
               {role === 'admin' && (
                 <>

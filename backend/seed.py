@@ -1,10 +1,13 @@
-from sqlalchemy import select, text
+import re
 
-from db.db import engine, Base, get_db_session
+from sqlalchemy import select
+
+from db.db import get_db_session
 import model.models  # noqa: F401  -- registers the models on Base.metadata
 from model.models import (
     User, Category, Course, CourseEnrollment,
     Module, ReadingMaterial, InteractiveActivity, ActivityOption,
+    Thread, Post,
 )
 from user.auth import hash_password
 from common.sanitize import sanitize_html, strip_tags
@@ -13,14 +16,10 @@ from course.instructor_router import (
 )
 
 
-# --- Schema -----------------------------------------------------------------
-SCHEMA_MIGRATIONS = [
-    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE',
-    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT FALSE',
-    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS xp INTEGER NOT NULL DEFAULT 0',
-    'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1',
-    'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
-]
+# Schema (tables + columns) is owned by the application: main.py builds it from
+# the models on startup. This script only *inserts demo data*, so it assumes the
+# tables already exist — the standard flow runs it after the backend is up
+# (`docker compose exec -T backend python seed.py`).
 
 # XP a learner earns for completing a course, by difficulty level.
 XP_BY_LEVEL = {"Beginner": 500, "Intermediate": 800, "Advanced": 1200}
@@ -29,13 +28,6 @@ XP_PER_LEVEL = 500
 
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
-
-
-def ensure_schema() -> None:
-    Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:
-        for statement in SCHEMA_MIGRATIONS:
-            conn.execute(text(statement))
 
 #! The password is plaintext but i import the same hasher. So it should workthe same
 USERS = [
@@ -46,12 +38,16 @@ USERS = [
     {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},
 ]
 
-#! Jon can change this if needed
+#! Categories double as the discussion-forum topic taxonomy (the Category table
+#! is shared). Jon can change this if needed.
 CATEGORIES = [
-    {"name": "Budgeting Basics", "slug": "budgeting-basics", "description": "Day-to-day money management and budgeting habits.", "display_order": 1},
-    {"name": "Saving & Investing", "slug": "saving-investing", "description": "Growing wealth through saving and investing.", "display_order": 2},
-    {"name": "Debt & Credit", "slug": "debt-credit", "description": "Managing debt and building healthy credit.", "display_order": 3},
-    {"name": "Retirement & Planning", "slug": "retirement-planning", "description": "Long-term financial planning.", "display_order": 4},
+    {"name": "Budgeting", "slug": "budgeting", "description": "Ask questions about budgeting and managing expenses.", "display_order": 1},
+    {"name": "Saving", "slug": "saving", "description": "Discuss savings habits, emergency funds, and saving goals.", "display_order": 2},
+    {"name": "Debt Management", "slug": "debt-management", "description": "Discuss loans, repayments, and debt reduction strategies.", "display_order": 3},
+    {"name": "Investing", "slug": "investing", "description": "Discuss investing basics, risks, and long-term growth.", "display_order": 4},
+    {"name": "Insurance", "slug": "insurance", "description": "Ask questions about insurance and financial protection.", "display_order": 5},
+    {"name": "Retirement Planning", "slug": "retirement-planning", "description": "Discuss retirement goals, CPF, and long-term planning.", "display_order": 6},
+    {"name": "Course Help", "slug": "course-help", "description": "Get help with course materials and platform usage.", "display_order": 7},
 ]
 
 #! If required Jon can change this info, table and columns.
@@ -81,6 +77,32 @@ ENROLLMENTS = {
               ("Retirement Planning Essentials", 0.15),
               ("Taxes Made Simple", 0.9)],
 }
+
+# Discussion-forum starter threads, keyed by category slug. Each seeds one
+# opening post authored by a real seeded user so ownership checks work.
+FORUM_THREADS = [
+    {
+        "category_slug": "budgeting",
+        "author": "demo",
+        "title": "How do I start budgeting?",
+        "body": "<p>I want to start budgeting but I do not know where to begin.</p>"
+                "<p>What budgeting methods work best for beginners?</p>",
+    },
+    {
+        "category_slug": "saving",
+        "author": "alex",
+        "title": "How can I build a saving habit?",
+        "body": "<p>I struggle to save money consistently.</p>"
+                "<p>How can I build a good savings habit?</p>",
+    },
+    {
+        "category_slug": "investing",
+        "author": "maria",
+        "title": "What is the difference between stocks and ETFs?",
+        "body": "<p>I am new to investing.</p>"
+                "<p>What is the difference between stocks and ETFs?</p>",
+    },
+]
 
 
 COURSE_CONTENT = {
@@ -657,10 +679,50 @@ def _seed_content(session, instructor) -> dict:
     return counts
 
 
+def _forum_slug(title: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower()).strip("-")
+    return slug or "thread"
+
+
+def _seed_forum(session, users, categories) -> int:
+    """Seed starter discussion threads (+ opening posts) under the forum
+    categories. Idempotent: skips a thread if its slug already exists. Posts are
+    sanitized through the same SR-09 allow-list the forum API uses, and carry a
+    real creator_id so ownership checks behave."""
+    created = 0
+    for spec in FORUM_THREADS:
+        category = categories.get(spec["category_slug"])
+        author = users.get(spec["author"])
+        if not category or not author:
+            continue
+
+        slug = _forum_slug(spec["title"])
+        if session.scalar(select(Thread).where(Thread.slug == slug)):
+            continue
+
+        thread = Thread(
+            category_id=category.category_id,
+            creator_id=author.user_id,
+            title=spec["title"],
+            slug=slug,
+        )
+        session.add(thread)
+        session.flush()
+
+        session.add(Post(
+            thread_id=thread.thread_id,
+            creator_id=author.user_id,
+            parent_id=None,
+            content=sanitize_html(spec["body"]),
+        ))
+        session.flush()
+        created += 1
+    return created
+
+
 def seed_course_content() -> None:
     """Seed only the FR-06/FR-07 course content. Kept as a standalone entry point
     (and for the integration test) — `seed()` runs this for you automatically."""
-    ensure_schema()
     with get_db_session() as session:
         instructor = session.scalar(select(User).where(User.username == INSTRUCTOR_USERNAME))
         if not instructor:
@@ -682,13 +744,10 @@ def seed_course_content() -> None:
 
 
 def seed() -> None:
-    ensure_schema()
-
     with get_db_session() as session:
         users = {spec["key"]: get_or_create_user(session, spec) for spec in USERS}
 
-        for spec in CATEGORIES:
-            get_or_create_category(session, spec)
+        categories = {spec["slug"]: get_or_create_category(session, spec) for spec in CATEGORIES}
 
         instructor = users["instructor"]
         instructor_id = instructor.user_id
@@ -711,6 +770,9 @@ def seed() -> None:
 
         # Attach modules / reading material / quizzes to the courses just created.
         content_counts = _seed_content(session, instructor)
+
+        # Seed discussion-forum starter threads under the categories.
+        forum_threads_created = _seed_forum(session, users, categories)
         # context manager commits on exit
 
     print("\n  Seed complete.\n")
@@ -720,6 +782,7 @@ def seed() -> None:
     print(f"  Modules:    {content_counts['modules']} new")
     print(f"  Materials:  {content_counts['materials']} new")
     print(f"  Activities: {content_counts['activities']} new")
+    print(f"  Forum threads: {forum_threads_created} new")
     if content_counts["skipped"]:
         print("\n  Content skipped (no matching course):")
         for name in content_counts["skipped"]:

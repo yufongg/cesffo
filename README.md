@@ -28,11 +28,11 @@ docker compose up --build -d   # build images and start in the background
 volumes, exposed debug ports). `docker-compose.yml` alone is the production shape
 (read-only source, ports kept inside the mesh network).
 
-Seed some demo data once the DB is up:
+Seed some demo data once the DB is up (this single script seeds users, courses,
+course content, and the discussion forum):
 
 ```bash
 docker compose exec -T backend python seed.py
-docker compose exec -T backend python seed_course_content.py
 ```
 
 ---
