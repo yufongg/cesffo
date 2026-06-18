@@ -12,8 +12,15 @@ const initialActivityForm = {
   activity_type: 'mcq_single',
   prompt: '',
   order_index: 0,
-  options_text: 'Option 1, Option 2',
-  correct_answers: 'Option 1',
+  // MCQ correctness is tracked per option (matches ActivityOption.is_correct on
+  // the backend) instead of re-matching free text, so an MCQ round-trips cleanly
+  // through edit/save.
+  options: [
+    { option_text: '', is_correct: true },
+    { option_text: '', is_correct: false },
+  ],
+  // Short-answer accepted answers, one per line.
+  correct_answers_text: '',
 };
 
 export default function InstructorDashboard() {
@@ -99,6 +106,55 @@ export default function InstructorDashboard() {
 
   function setActivityField(field, value) {
     setActivityForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function setActivityType(type) {
+    setActivityForm((prev) => {
+      // Switching to single-answer must leave at most one option marked correct.
+      let options = prev.options;
+      if (type === 'mcq_single') {
+        let kept = false;
+        options = prev.options.map((o) => {
+          if (o.is_correct && !kept) { kept = true; return o; }
+          return { ...o, is_correct: false };
+        });
+      }
+      return { ...prev, activity_type: type, options };
+    });
+  }
+
+  function setOptionText(index, value) {
+    setActivityForm((prev) => ({
+      ...prev,
+      options: prev.options.map((o, i) => (i === index ? { ...o, option_text: value } : o)),
+    }));
+  }
+
+  function setOptionCorrect(index, checked) {
+    setActivityForm((prev) => {
+      // Single-answer: selecting one option clears the rest (radio semantics).
+      if (prev.activity_type === 'mcq_single') {
+        return { ...prev, options: prev.options.map((o, i) => ({ ...o, is_correct: i === index })) };
+      }
+      return {
+        ...prev,
+        options: prev.options.map((o, i) => (i === index ? { ...o, is_correct: checked } : o)),
+      };
+    });
+  }
+
+  function addOption() {
+    setActivityForm((prev) => ({
+      ...prev,
+      options: [...prev.options, { option_text: '', is_correct: false }],
+    }));
+  }
+
+  function removeOption(index) {
+    setActivityForm((prev) => ({
+      ...prev,
+      options: prev.options.filter((_, i) => i !== index),
+    }));
   }
 
   function clearActivityForm() {
@@ -381,16 +437,35 @@ export default function InstructorDashboard() {
       prompt: activityForm.prompt,
       order_index: Number(activityForm.order_index) || 0,
     };
+
     if (activityForm.activity_type === 'short_answer') {
-      payload.correct_answers = activityForm.correct_answers
-        .split(',')
+      const answers = activityForm.correct_answers_text
+        .split('\n')
         .map((a) => a.trim())
         .filter(Boolean);
+      if (answers.length === 0) {
+        setContentError('Add at least one accepted answer.');
+        return;
+      }
+      payload.correct_answers = answers;
     } else {
-      payload.options = activityForm.options_text
-        .split(',')
-        .map((option, index) => ({ option_text: option.trim(), is_correct: activityForm.correct_answers.split(',').map((a) => a.trim()).includes(option.trim()), order_index: index }))
-        .filter((option) => option.option_text);
+      const options = activityForm.options
+        .map((o) => ({ option_text: o.option_text.trim(), is_correct: o.is_correct }))
+        .filter((o) => o.option_text);
+      if (options.length < 2) {
+        setContentError('Multiple-choice questions need at least 2 options.');
+        return;
+      }
+      const correctCount = options.filter((o) => o.is_correct).length;
+      if (activityForm.activity_type === 'mcq_single' && correctCount !== 1) {
+        setContentError('Single-answer questions need exactly one correct option.');
+        return;
+      }
+      if (activityForm.activity_type === 'mcq_multi' && correctCount < 1) {
+        setContentError('Multiple-answer questions need at least one correct option.');
+        return;
+      }
+      payload.options = options;
     }
     try {
       if (editingActivityId) {
@@ -407,15 +482,20 @@ export default function InstructorDashboard() {
 
   function handleActivityEdit(activity) {
     setEditingActivityId(activity.activity_id);
-    const correctAnswers = (activity.correct_answers || []).join(', ');
-    const optionsText = (activity.options || []).map((o) => o.option_text).join(', ');
+    const isShort = activity.activity_type === 'short_answer';
+    const existingOptions = (activity.options || []).map((o) => ({
+      option_text: o.option_text || '',
+      is_correct: !!o.is_correct,
+    }));
     setActivityForm({
       title: activity.title || '',
       activity_type: activity.activity_type || 'mcq_single',
       prompt: activity.prompt || '',
       order_index: activity.order_index || 0,
-      options_text: optionsText || 'Option 1, Option 2',
-      correct_answers: correctAnswers || '',
+      options: !isShort && existingOptions.length >= 2
+        ? existingOptions
+        : [{ option_text: '', is_correct: true }, { option_text: '', is_correct: false }],
+      correct_answers_text: isShort ? (activity.correct_answers || []).join('\n') : '',
     });
     setContentError('');
   }
@@ -552,27 +632,29 @@ export default function InstructorDashboard() {
                       <td>{course.xp_reward ?? 0}</td>
                       <td>{(course.tags || []).join(', ') || '—'}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="btn btn--secondary btn--sm"
-                          onClick={() => handleCourseEdit(course)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--secondary btn--sm"
-                          onClick={() => handleCourseSelect(course)}
-                        >
-                          Manage content
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--danger btn--sm"
-                          onClick={() => handleCourseDelete(course.course_id)}
-                        >
-                          Delete
-                        </button>
+                        <div className="row-actions">
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            onClick={() => handleCourseEdit(course)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            onClick={() => handleCourseSelect(course)}
+                          >
+                            Manage content
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--danger btn--sm"
+                            onClick={() => handleCourseDelete(course.course_id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -650,15 +732,17 @@ export default function InstructorDashboard() {
                         <td>{module.order_index}</td>
                         <td>{module.description || '—'}</td>
                         <td>
-                          <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleModuleSelect(module)}>
-                            Open
-                          </button>
-                          <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleModuleEdit(module)}>
-                            Edit
-                          </button>
-                          <button type="button" className="btn btn--danger btn--sm" onClick={() => handleModuleDelete(module.module_id)}>
-                            Delete
-                          </button>
+                          <div className="row-actions">
+                            <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleModuleSelect(module)}>
+                              Open
+                            </button>
+                            <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleModuleEdit(module)}>
+                              Edit
+                            </button>
+                            <button type="button" className="btn btn--danger btn--sm" onClick={() => handleModuleDelete(module.module_id)}>
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -741,12 +825,14 @@ export default function InstructorDashboard() {
                             <td>{item.title}</td>
                             <td>{item.order_index}</td>
                             <td>
-                              <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleMaterialEdit(item)}>
-                                Edit
-                              </button>
-                              <button type="button" className="btn btn--danger btn--sm" onClick={() => handleMaterialDelete(item.material_id)}>
-                                Delete
-                              </button>
+                              <div className="row-actions">
+                                <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleMaterialEdit(item)}>
+                                  Edit
+                                </button>
+                                <button type="button" className="btn btn--danger btn--sm" onClick={() => handleMaterialDelete(item.material_id)}>
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -775,7 +861,7 @@ export default function InstructorDashboard() {
                     <label htmlFor="media_type" className="label">Type</label>
                     <select
                       id="media_type"
-                      className="input"
+                      className="select"
                       value={mediaForm.media_type}
                       onChange={(e) => setMediaField('media_type', e.target.value)}
                     >
@@ -835,12 +921,14 @@ export default function InstructorDashboard() {
                             <td>{item.media_type}</td>
                             <td>{item.order_index}</td>
                             <td>
-                              <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleMediaEdit(item)}>
-                                Edit
-                              </button>
-                              <button type="button" className="btn btn--danger btn--sm" onClick={() => handleMediaDelete(item.media_id)}>
-                                Delete
-                              </button>
+                              <div className="row-actions">
+                                <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleMediaEdit(item)}>
+                                  Edit
+                                </button>
+                                <button type="button" className="btn btn--danger btn--sm" onClick={() => handleMediaDelete(item.media_id)}>
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -870,14 +958,18 @@ export default function InstructorDashboard() {
                   <label htmlFor="activity_type" className="label">Activity type</label>
                   <select
                     id="activity_type"
-                    className="input"
+                    className="select"
                     value={activityForm.activity_type}
-                    onChange={(e) => setActivityField('activity_type', e.target.value)}
+                    onChange={(e) => setActivityType(e.target.value)}
+                    disabled={!!editingActivityId}
                   >
                     <option value="mcq_single">MCQ single</option>
                     <option value="mcq_multi">MCQ multi</option>
                     <option value="short_answer">Short answer</option>
                   </select>
+                  {editingActivityId && (
+                    <span className="field__hint">Activity type can't be changed after creation.</span>
+                  )}
                 </div>
                 <div className="field">
                   <label htmlFor="activity_order_index" className="label">Order</label>
@@ -902,41 +994,62 @@ export default function InstructorDashboard() {
                   />
                 </div>
                 {activityForm.activity_type !== 'short_answer' ? (
-                  <>
-                    <div className="field field--full">
-                      <label htmlFor="activity_options_text" className="label">Options (comma-separated)</label>
-                      <input
-                        id="activity_options_text"
-                        className="input"
-                        value={activityForm.options_text}
-                        onChange={(e) => setActivityField('options_text', e.target.value)}
-                        placeholder="Option 1, Option 2, Option 3"
-                        required
-                      />
+                  <div className="field field--full">
+                    <label className="label">
+                      Options
+                      <span className="field__hint" style={{ display: 'inline', marginLeft: 6 }}>
+                        ({activityForm.activity_type === 'mcq_single'
+                          ? 'select the one correct answer'
+                          : 'tick every correct answer'})
+                      </span>
+                    </label>
+                    <div className="option-list">
+                      {activityForm.options.map((option, index) => (
+                        <div className="option-row" key={index}>
+                          <input
+                            type={activityForm.activity_type === 'mcq_single' ? 'radio' : 'checkbox'}
+                            name="activity_correct_option"
+                            className="option-row__mark"
+                            checked={option.is_correct}
+                            onChange={(e) => setOptionCorrect(index, e.target.checked)}
+                            aria-label={`Mark option ${index + 1} as correct`}
+                          />
+                          <input
+                            className="input option-row__text"
+                            value={option.option_text}
+                            onChange={(e) => setOptionText(index, e.target.value)}
+                            placeholder={`Option ${index + 1}`}
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => removeOption(index)}
+                            disabled={activityForm.options.length <= 2}
+                            aria-label={`Remove option ${index + 1}`}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <div className="field field--full">
-                      <label htmlFor="activity_correct_answers" className="label">Correct option(s) (comma-separated)</label>
-                      <input
-                        id="activity_correct_answers"
-                        className="input"
-                        value={activityForm.correct_answers}
-                        onChange={(e) => setActivityField('correct_answers', e.target.value)}
-                        placeholder="Option 1"
-                        required
-                      />
-                    </div>
-                  </>
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={addOption}>
+                      + Add option
+                    </button>
+                  </div>
                 ) : (
                   <div className="field field--full">
-                    <label htmlFor="activity_correct_answers" className="label">Accepted answers (comma-separated)</label>
-                    <input
+                    <label htmlFor="activity_correct_answers" className="label">Accepted answers (one per line)</label>
+                    <textarea
                       id="activity_correct_answers"
-                      className="input"
-                      value={activityForm.correct_answers}
-                      onChange={(e) => setActivityField('correct_answers', e.target.value)}
-                      placeholder="Answer 1, Answer 2"
+                      className="textarea"
+                      rows="3"
+                      value={activityForm.correct_answers_text}
+                      onChange={(e) => setActivityField('correct_answers_text', e.target.value)}
+                      placeholder={'compound interest\ncompounding'}
                       required
                     />
+                    <span className="field__hint">Matching is case- and whitespace-insensitive.</span>
                   </div>
                 )}
                 <div className="field field--actions">
@@ -969,12 +1082,14 @@ export default function InstructorDashboard() {
                           <td>{activity.activity_type}</td>
                           <td>{activity.order_index}</td>
                           <td>
-                            <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleActivityEdit(activity)}>
-                              Edit
-                            </button>
-                            <button type="button" className="btn btn--danger btn--sm" onClick={() => handleActivityDelete(activity.activity_id)}>
-                              Delete
-                            </button>
+                            <div className="row-actions">
+                              <button type="button" className="btn btn--secondary btn--sm" onClick={() => handleActivityEdit(activity)}>
+                                Edit
+                              </button>
+                              <button type="button" className="btn btn--danger btn--sm" onClick={() => handleActivityDelete(activity.activity_id)}>
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

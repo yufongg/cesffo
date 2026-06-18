@@ -38,12 +38,14 @@ export function ProtectedRoute({ children, adminOnly = false, instructorOnly = f
     if (!token) {
         return <Navigate to="/" replace />;
     }
-    console.log(role)
+
     if (adminOnly && role !== 'admin') {
         return <Navigate to="/NotFound" replace />;
     }
 
-    if (instructorOnly && role !== 'instructor') {
+    // Course-authoring routes: mirror the backend `require_instructor` gate,
+    // which also lets admins through so staff can manage any course.
+    if (instructorOnly && role !== 'instructor' && role !== 'admin') {
         return <Navigate to="/NotFound" replace />;
     }
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../api/client';
+import SafeHtml from '../components/Security/SafeHtml';
 
 // Read-only syllabus for a course the student has NOT enrolled in yet. The
 // backend /preview endpoint only returns the outline (module titles, blurbs and
@@ -30,8 +31,8 @@ function PreviewModule({ module, index }) {
         </div>
 
         {module.description && (
-          // Server-sanitized (nh3 allow-list) before storage — safe as HTML.
-          <div className="module__description" dangerouslySetInnerHTML={{ __html: module.description }} />
+          // Parsed through the shared allow-list into React elements (no raw HTML).
+          <SafeHtml className="module__description" html={module.description} />
         )}
 
         {readings.length > 0 && (
