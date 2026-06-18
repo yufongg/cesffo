@@ -335,6 +335,91 @@
   color: var(--color-muted);
 }
 
+/* ----- Form grid (authoring forms) ------------------------------------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+  padding: 24px 24px 6px;
+  margin-bottom: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-grid .field--full {
+  grid-column: 1 / -1;
+}
+
+.form-grid .field--actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ----- Responsive content grid ----------------------------------------- */
+.grid {
+  display: grid;
+  gap: 24px;
+}
+
+.grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 860px) {
+  .grid--2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ----- Sub-section divider --------------------------------------------- */
+.section__split {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ----- MCQ option editor ----------------------------------------------- */
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.option-row__mark {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.option-row__text {
+  flex: 1 1 auto;
+}
+
+/* ----- Muted helper text ----------------------------------------------- */
+.muted {
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
 /* ----- Cards ----------------------------------------------------------- */
 .card {
   background: var(--color-surface);
@@ -592,6 +677,11 @@
 
 .table tbody tr:hover {
   background: var(--color-primary-50);
+}
+
+.table tbody tr.selected-row,
+.table tbody tr.selected-row:hover {
+  background: var(--color-primary-100);
 }
 
 .table__user {
@@ -1623,6 +1713,114 @@
   margin-bottom: 14px;
 }
 
+/* ----- Course topic navigation (CourseLearn) --------------------------- */
+.topic-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100vh - var(--header-h) - 140px);
+  overflow-y: auto;
+}
+
+.topic-nav__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.topic-nav__link:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-ink);
+}
+
+.topic-nav__link--active {
+  background: var(--color-primary-50);
+  color: var(--color-primary);
+}
+
+.topic-nav__index {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topic-nav__link--active .topic-nav__index {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.topic-nav__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-nav__check {
+  flex-shrink: 0;
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+/* Quiz call-to-action at the foot of a topic. */
+.topic-page__quiz {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ----- Topic pager ----------------------------------------------------- */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.pager__group {
+  display: flex;
+  gap: 6px;
+}
+
+.pager__status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+@media (max-width: 880px) {
+  .topic-nav__list {
+    max-height: 280px;
+  }
+}
+
 /* ===================================================================== */
 /* Discussion forum                                                      */
 /* ===================================================================== */
@@ -1776,9 +1974,31 @@
   object-fit: cover;
 }
 
+/* ----- Replies ----- */
+.forum-replies {
+  margin-top: 24px;
+}
+
+.forum-replies__heading {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.forum-reply-item {
+  margin-bottom: 12px;
+}
+
+.forum-reply-item .forum-thread__meta {
+  margin-bottom: 10px;
+}
+
 /* ----- Composer + editor ----- */
 .forum-composer {
   margin-top: 4px;
+}
+
+.forum-reply {
+  margin-top: 20px;
 }
 
 .forum-composer__actions {

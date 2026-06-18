@@ -573,6 +573,27 @@ async def update_activity(activity_id: str, request: InteractiveActivityUpdate, 
     aid = _to_uuid(activity_id)
     with get_db_session() as session:
         activity = _require_owned_activity(session, aid, current_user)
+
+        # The update schema is partial and carries no activity_type, so the
+        # answer-key invariants enforced at creation must be re-checked here
+        # against the stored type — otherwise a PATCH could corrupt the key
+        # (e.g. an MCQ left with zero correct options).
+        if request.options is not None:
+            if activity.activity_type not in ("mcq_single", "mcq_multi"):
+                raise HTTPException(status_code=400, detail="Options apply only to MCQ activities")
+            if len(request.options) < 2:
+                raise HTTPException(status_code=400, detail="MCQ activities need at least 2 options")
+            correct_count = sum(1 for o in request.options if o.is_correct)
+            if activity.activity_type == "mcq_single" and correct_count != 1:
+                raise HTTPException(status_code=400, detail="mcq_single requires exactly one correct option")
+            if activity.activity_type == "mcq_multi" and correct_count < 1:
+                raise HTTPException(status_code=400, detail="mcq_multi requires at least one correct option")
+        if request.correct_answers is not None:
+            if activity.activity_type != "short_answer":
+                raise HTTPException(status_code=400, detail="Accepted answers apply only to short-answer activities")
+            if not any(a.strip() for a in request.correct_answers):
+                raise HTTPException(status_code=400, detail="short_answer requires at least one accepted answer")
+
         if request.title is not None:
             activity.title = strip_tags(request.title)
         if request.prompt is not None:
