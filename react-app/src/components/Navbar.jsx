@@ -41,6 +41,12 @@ export default function Navbar() {
               <NavLink to="/marketplace" className={navClass}>Marketplace</NavLink>
               <NavLink to="/forums" className={navClass}>Forums</NavLink>
               <NavLink to="/updateProfile" className={navClass}>My Profile</NavLink>
+              {(role === 'instructor') && (
+                <>
+                  <span className="navbar__divider" aria-hidden="true" />
+                  <NavLink to="/instructor" className={navClass}>Instructor</NavLink>
+                </>
+              )}
               {role === 'admin' && (
                 <>
                   <span className="navbar__divider" aria-hidden="true" />

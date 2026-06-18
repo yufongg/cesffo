@@ -372,6 +372,36 @@ async def list_modules(course_id: str, current_user: dict = Depends(require_inst
         return [_module_to_read(m) for m in modules]
 
 
+@router.get("/modules/{module_id}/materials", response_model=List[ReadingMaterialRead])
+async def list_materials(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        materials = session.scalars(
+            select(ReadingMaterial).where(ReadingMaterial.module_id == module.module_id).order_by(ReadingMaterial.order_index)
+        ).all()
+        return [_material_to_read(m) for m in materials]
+
+
+@router.get("/modules/{module_id}/media", response_model=List[MediaContentRead])
+async def list_media(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        media = session.scalars(
+            select(MediaContent).where(MediaContent.module_id == module.module_id).order_by(MediaContent.order_index)
+        ).all()
+        return [_media_to_read(m) for m in media]
+
+
+@router.get("/modules/{module_id}/activities", response_model=List[InteractiveActivityRead])
+async def list_activities(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        activities = session.scalars(
+            select(InteractiveActivity).where(InteractiveActivity.module_id == module.module_id).order_by(InteractiveActivity.order_index)
+        ).all()
+        return [_activity_to_read(a) for a in activities]
+
+
 @router.patch("/modules/{module_id}", response_model=ModuleRead)
 async def update_module(module_id: str, request: ModuleUpdate, current_user: dict = Depends(require_instructor)):
     with get_db_session() as session:

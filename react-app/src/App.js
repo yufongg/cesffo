@@ -17,6 +17,7 @@ import UpdateProfile from './pages/UpdateProfile';
 import AdminAccount from './pages/Admin/AdminAccount';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 import AdminUsers from './pages/Admin/Users';
+import InstructorDashboard from './pages/InstructorDashboard';
 import NotFound from './pages/NotFound';
 
 // Security Imports
@@ -98,6 +99,15 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <UpdateProfile />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/instructor"
+                    element={
+                      <ProtectedRoute instructorOnly={true}>
+                        <InstructorDashboard />
                       </ProtectedRoute>
                     }
                   />
