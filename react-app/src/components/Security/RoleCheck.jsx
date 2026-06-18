@@ -31,7 +31,7 @@ export function RoleCheck({ children }) {
 
 export const useAuth = () => useContext(AuthContext);
 
-export function ProtectedRoute({ children, adminOnly = false }) {
+export function ProtectedRoute({ children, adminOnly = false, instructorOnly = false }) {
     const token = localStorage.getItem('access_token');
     const role = localStorage.getItem('user_role');
 
@@ -40,6 +40,10 @@ export function ProtectedRoute({ children, adminOnly = false }) {
     }
     console.log(role)
     if (adminOnly && role !== 'admin') {
+        return <Navigate to="/NotFound" replace />;
+    }
+
+    if (instructorOnly && role !== 'instructor') {
         return <Navigate to="/NotFound" replace />;
     }
 
