@@ -1,16 +1,10 @@
 import React, { useState } from 'react';
 import RichTextEditor from './RichTextEditor';
 import { validateImageUpload, MAX_UPLOAD_BYTES } from '../Security/FileUpload';
+import { plainText } from '../../utils/forumText';
 
 const MAX_FILES = 5;
 const MAX_CONTENT_LEN = 10000;
-
-function plainText(html) {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .trim();
-}
 
 // Reply box shown to every authenticated viewer of a thread. Mirrors the
 // server's content/image validation (the server re-checks regardless). On a

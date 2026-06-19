@@ -87,12 +87,45 @@ app.add_middleware(
 )
 
 
-# Defence-in-depth: stop browsers MIME-sniffing responses (notably the
-# user-uploaded forum images served from /uploads) into something executable.
+# Security headers applied to everything FastAPI serves (API JSON + the
+# user-uploaded files under /uploads). The React SPA is served by a separate
+# frontend service, so its document-level CSP / X-Frame-Options must be set
+# there (see README / reverse-proxy config); these headers harden the backend
+# surface — especially the uploaded-content directory.
+_DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
+
+    # Stop browsers MIME-sniffing a response (notably user uploads) into
+    # something executable.
     response.headers["X-Content-Type-Options"] = "nosniff"
+    # Anti-clickjacking: nothing the API serves should ever be framed.
+    response.headers["X-Frame-Options"] = "DENY"
+    # Don't leak full URLs (which can carry ids) via the Referer header.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    # Pin HTTPS for a year once the site is seen over TLS. Browsers ignore this
+    # on plain-HTTP responses, so it is safe to send in local development too.
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    path = request.url.path
+    if path.startswith("/uploads"):
+        # User-uploaded content: deny everything. Even a file that somehow
+        # slipped past the image validation cannot run script, fetch resources,
+        # or be framed when accessed directly.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; img-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'none'; form-action 'none'; sandbox"
+        )
+    elif path not in _DOCS_PATHS:
+        # API responses are JSON, never a rendered document — lock the CSP all
+        # the way down. (Swagger/ReDoc are skipped so the docs keep loading.)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        )
+
     return response
 
 

@@ -1,56 +1,77 @@
 /* ==========================================================================
    Cesffo — Design Tokens & Global Base
-   Visual direction: "Porcelain & Cobalt" (blue-and-white china + antique gold)
-   Inspired by hand-painted delft porcelain: warm ivory body, deep cobalt
-   florals, royal-navy fittings, antique-gold engraving.
+   Visual direction: "Sumi & Washi" — Japanese minimalism (wabi-sabi calm)
+   Anchored on four natural swatches: sumi ink (#231d1c), washi paper
+   (#e2e3de), tatami taupe (#97876e), and matcha (#bdbf7f). Ink-on-paper
+   restraint: a light, neutral field with warm earthen accents. All values
+   in OKLCH; contrast verified for WCAG AA.
    ========================================================================== */
 
 :root {
-  /* Brand — cobalt blue (the painted florals) */
-  --color-primary: #1e3fb0;        /* delft cobalt */
-  --color-primary-dark: #15296b;   /* royal navy (grip / magazine) */
-  --color-primary-hover: #18348f;  /* deepened cobalt */
-  --color-primary-light: #3a5fd0;  /* brighter cobalt */
-  --color-primary-50: #eef1fc;     /* faintest porcelain-blue wash */
-  --color-primary-100: #dde4f8;
+  /* Brand — walnut (tatami taupe, darkened so it works as button + link).
+     Passes white-on (6.0:1) and on-washi (4.7:1). */
+  --color-primary: oklch(50% 0.052 72);      /* walnut — buttons, links, active */
+  --color-primary-dark: oklch(43% 0.052 72); /* deep walnut — hover/active */
+  --color-primary-hover: oklch(46% 0.052 72);/* walnut hover */
+  --color-primary-light: oklch(63% 0.045 78);/* tatami taupe (#97876e) — soft accents */
+  --color-primary-50: oklch(95% 0.012 88);   /* faintest walnut wash */
+  --color-primary-100: oklch(90% 0.022 86);  /* light walnut wash — focus ring */
 
-  --color-accent: #c19a36;         /* antique gold (engraving) */
-  --color-accent-dark: #8f6f1d;
-  --gradient-gold: linear-gradient(135deg, #e8c873, #c19a36 52%, #9b7c27);
-  --gold-line: linear-gradient(90deg, transparent, var(--color-accent), transparent);
-  --gold-text: #806015;            /* gold that stays legible on ivory */
+  /* Accent — matcha (#bdbf7f). Sparing: highlights, selected, success harmony.
+     Note: dark text only on matcha (white fails); use --color-ink on it. */
+  --color-accent: oklch(79% 0.084 110);      /* matcha */
+  --color-accent-dark: oklch(55% 0.075 118); /* deep matcha — text on light */
+  --color-on-primary: #fff;                  /* text on walnut brand surfaces */
+  --ink-fixed: oklch(24% 0.010 30);          /* always-dark ink for always-light
+                                                accents (matcha chips, tier
+                                                metallics) — does NOT flip in dark */
 
-  /* Neutrals (warm porcelain ivory) */
-  --color-ink: #15235a;            /* deep cobalt-navy — headings */
-  --color-text: #3c4255;           /* warm slate — body */
-  --color-muted: #6b7186;          /* secondary */
-  --color-faint: #9aa0b4;          /* placeholders / icons */
-  --color-border: #e9e2d3;         /* warm porcelain hairline */
-  --color-border-strong: #d8cfb9;  /* warm porcelain border */
-  --color-bg: #f7f3ea;             /* porcelain ivory — page */
-  --color-surface: #fffdf8;        /* warm white — cards */
-  --color-surface-alt: #f1ebdd;    /* cream — subtle fills */
+  /* Kintsugi gold — the precious seam. Decorative joinery only (hairline
+     dividers, page accents, the brand seal); never body text. A real metallic
+     lacquer gradient (highlight → leaf → antique) so it reads as gold even on
+     light surfaces. --color-gold-deep is the contrast-safe tone for text. */
+  --color-gold: oklch(76% 0.120 84);         /* gold leaf */
+  --color-gold-soft: oklch(84% 0.085 88);    /* highlight within the seam */
+  --color-gold-deep: oklch(50% 0.095 78);    /* antique gold — ~4.6:1 on washi */
+  --gradient-gold: linear-gradient(135deg, var(--color-gold-soft), var(--color-gold) 42%, var(--color-gold-deep) 70%, var(--color-gold-soft));
+  --gold-line: linear-gradient(90deg, transparent, var(--color-gold) 18%, var(--color-gold-soft) 50%, var(--color-gold) 82%, transparent);
+  --gold-text: var(--color-gold-deep);       /* contrast-safe gold for text */
 
-  /* Status */
-  --color-success: #15803d;
-  --color-success-bg: #f0fdf4;
-  --color-danger: #dc2626;
-  --color-danger-bg: #fef2f2;
-  --color-warning: #b45309;
-  --color-warning-bg: #fffbeb;
+  /* Neutrals — sumi ink on washi paper, warm low-chroma */
+  --color-ink: oklch(24% 0.010 30);          /* sumi (#231d1c) — headings */
+  --color-text: oklch(31% 0.012 38);         /* soft sumi — body (~10:1) */
+  --color-muted: oklch(47% 0.025 62);        /* warm taupe-gray — secondary (5.0:1) */
+  --color-faint: oklch(50% 0.020 62);        /* readable taupe — placeholders (4.6:1) */
+  --color-border: oklch(83% 0.012 100);      /* soft washi hairline */
+  --color-border-strong: oklch(76% 0.015 92);/* stronger washi border */
+  --color-bg: oklch(91% 0.008 112);          /* washi paper (#e2e3de) — page */
+  --color-surface: oklch(95.5% 0.006 110);   /* lifted washi — cards */
+  --color-surface-alt: oklch(87% 0.010 105); /* deeper washi — fills/hover */
+
+  /* Status — natural, low-neon, harmonized with the earth palette */
+  --color-success: oklch(52% 0.090 138);     /* moss green */
+  --color-success-bg: oklch(93% 0.030 132);
+  --color-danger: oklch(52% 0.130 28);       /* muted terracotta-red */
+  --color-danger-bg: oklch(93% 0.035 30);
+  --color-warning: oklch(60% 0.100 72);      /* ochre */
+  --color-warning-bg: oklch(93% 0.035 78);
 
   /* Semantic / theming aliases (overridden in dark mode) */
   --color-link: var(--color-primary);
-  --surface-translucent: rgba(255, 253, 248, 0.85);
-  --footer-bg: #0e1f4d;            /* deep cobalt navy */
-  --footer-text: #c2cbe6;
-  --footer-heading: #ffffff;
-  --footer-muted: #8a96b8;
-  --footer-border: rgba(255, 255, 255, 0.1);
+  --surface-translucent: rgba(230, 230, 224, 0.85);
+  --footer-bg: oklch(30% 0.018 55);          /* warm taupe-dark — grounding base */
+  --footer-text: oklch(85% 0.010 100);       /* washi text on dark footer */
+  --footer-heading: oklch(95% 0.008 100);    /* near-washi headings */
+  --footer-muted: oklch(68% 0.015 80);       /* warm muted */
+  --footer-border: rgba(255, 255, 255, 0.10);
 
-  /* Typography */
+  /* Typography — humanist sans body, soft old-style serif display.
+     Pairs on a contrast axis (sans + serif), not two similar sans. */
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Plus Jakarta Sans", var(--font-sans);
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
+
+  /* Washi paper grain — a faint fibrous texture for large negative spaces */
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.045'/%3E%3C/svg%3E");
 
   /* Radii */
   --radius-sm: 6px;
@@ -71,51 +92,60 @@
   color-scheme: light;
 }
 
-/* ----- Dark theme — "Cobalt Night" ------------------------------------- */
+/* ----- Dark theme — "Sumi Night" (warm tea-room dark, no blue) --------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-primary: #5a7fe8;        /* bright cobalt on dark */
-  --color-primary-dark: #3a5fd0;
-  --color-primary-hover: #7d9bf0;
-  --color-primary-light: #7d9bf0;
-  --color-primary-50: rgba(90, 127, 232, 0.14);
-  --color-primary-100: rgba(90, 127, 232, 0.30);
-  --color-link: #93b0ff;
+  /* On dark, the walnut brand lightens to tatami; button text flips to ink. */
+  --color-primary: oklch(72% 0.060 78);      /* tatami on dark — buttons, links */
+  --color-primary-dark: oklch(64% 0.060 76); /* deeper tatami */
+  --color-primary-hover: oklch(78% 0.060 80);/* lighter on hover (dark) */
+  --color-primary-light: oklch(70% 0.050 80);
+  --color-primary-50: oklch(34% 0.030 70);   /* dark walnut wash */
+  --color-primary-100: oklch(42% 0.040 72);  /* focus ring on dark */
+  --color-link: oklch(74% 0.060 80);
 
-  --color-accent: #d9b85a;         /* gold reads brighter on dark */
-  --color-accent-dark: #b8942f;
-  --gradient-gold: linear-gradient(135deg, #f1d588, #d9b85a 52%, #b8942f);
-  --gold-text: #e3c074;            /* bright gold for dark surfaces */
+  --color-accent: oklch(82% 0.080 112);      /* matcha brightened for dark */
+  --color-accent-dark: oklch(70% 0.070 115);
+  --color-on-primary: oklch(22% 0.010 40);   /* ink text on light tatami button */
 
-  --color-ink: #eef1fb;            /* porcelain white */
-  --color-text: #cbd3ea;
-  --color-muted: #91a0c4;
-  --color-faint: #5c6a90;
-  --color-border: #1d2c52;
-  --color-border-strong: #324269;
-  --color-bg: #0a1330;             /* deep cobalt navy (grip) */
-  --color-surface: #111d3f;
-  --color-surface-alt: #1a2750;
+  /* Kintsugi gold — brighter on the dark tea-room ground so it still glints */
+  --color-gold: oklch(82% 0.115 86);
+  --color-gold-soft: oklch(90% 0.075 90);
+  --color-gold-deep: oklch(70% 0.110 80);
+  --gradient-gold: linear-gradient(135deg, var(--color-gold-soft), var(--color-gold) 42%, var(--color-gold-deep) 72%, var(--color-gold-soft));
+  --gold-line: linear-gradient(90deg, transparent, var(--color-gold) 18%, var(--color-gold-soft) 50%, var(--color-gold) 82%, transparent);
+  --gold-text: var(--color-gold);
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.06'/%3E%3C/svg%3E");
 
-  --color-success: #34d399;
-  --color-success-bg: rgba(16, 185, 129, 0.14);
-  --color-danger: #f87171;
-  --color-danger-bg: rgba(248, 113, 113, 0.14);
-  --color-warning: #fbbf24;
-  --color-warning-bg: rgba(251, 191, 36, 0.14);
+  --color-ink: oklch(92% 0.010 95);          /* warm near-white — headings */
+  --color-text: oklch(84% 0.014 90);         /* warm light beige — body */
+  --color-muted: oklch(68% 0.018 80);        /* warm gray — secondary */
+  --color-faint: oklch(56% 0.015 70);        /* warm gray — placeholders */
+  --color-border: oklch(38% 0.014 60);       /* warm border on dark */
+  --color-border-strong: oklch(46% 0.016 65);
+  --color-bg: oklch(24% 0.012 50);           /* warm sumi-brown — page (not black) */
+  --color-surface: oklch(29% 0.013 50);      /* lifted warm brown — cards */
+  --color-surface-alt: oklch(34% 0.014 50);  /* warm brown — fills/hover */
 
-  --surface-translucent: rgba(17, 29, 63, 0.85);
-  --footer-bg: #060e24;
-  --footer-text: #8a96b8;
-  --footer-heading: #eef1fb;
-  --footer-muted: #5c6a90;
-  --footer-border: rgba(255, 255, 255, 0.07);
+  --color-success: oklch(72% 0.100 140);     /* moss, lifted for dark */
+  --color-success-bg: oklch(36% 0.050 138);
+  --color-danger: oklch(68% 0.120 28);       /* terracotta, lifted */
+  --color-danger-bg: oklch(40% 0.070 30);
+  --color-warning: oklch(75% 0.100 75);      /* ochre, lifted */
+  --color-warning-bg: oklch(40% 0.060 75);
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --surface-translucent: rgba(44, 37, 30, 0.85);
+  --footer-bg: oklch(20% 0.012 50);          /* deepest warm brown — footer */
+  --footer-text: oklch(82% 0.012 90);
+  --footer-heading: oklch(93% 0.010 95);
+  --footer-muted: oklch(64% 0.015 75);
+  --footer-border: rgba(255, 255, 255, 0.08);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 /* ----- Reset ----------------------------------------------------------- */
@@ -137,6 +167,7 @@ body {
   line-height: 1.6;
   color: var(--color-text);
   background-color: var(--color-bg);
+  background-image: var(--paper-grain);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -144,14 +175,17 @@ body {
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   color: var(--color-ink);
-  line-height: 1.2;
+  line-height: 1.18;
   margin: 0 0 0.5em;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  font-optical-sizing: auto;
+  text-wrap: balance;
 }
 
 p {
   margin: 0 0 1em;
+  text-wrap: pretty;
 }
 
 a {

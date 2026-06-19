@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_, and_
 
 from db.db import get_db_session
 from model.models import Course, CourseEnrollment, User
+from common.security import parse_uid as _parse_uid
 from user.auth_router import get_current_user
 
 router = APIRouter(prefix="/api/v1/courses", tags=["Courses"])
@@ -50,13 +51,6 @@ class ScoresResponse(BaseModel):
 
 
 # --- Helpers ---
-def _parse_uid(current_user: dict) -> UUID:
-    try:
-        return UUID(current_user["user_id"])
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
 def _like_escape(term: str) -> str:
     """Escape LIKE/ILIKE wildcards so user input is matched literally."""
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
