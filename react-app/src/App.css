@@ -39,7 +39,7 @@
   bottom: -1px;
   width: 64px;
   height: 2px;
-  background: var(--gradient-gold);
+  background: var(--gold-line);
 }
 
 .page-header h1 {
@@ -61,7 +61,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--gold-text);
+  color: var(--color-primary-dark);
   margin-bottom: 10px;
 }
 
@@ -138,15 +138,27 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(155deg, #1b2f63, #0b1838);
-  color: var(--color-accent);
-  border: 1px solid rgba(193, 154, 54, 0.55);
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary));
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 18px;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), var(--shadow-sm);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Kintsugi seam — a thin gold vein glinting across the seal */
+.brand__mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(118deg, transparent 40%, var(--color-gold-soft) 46%, var(--color-gold) 50%, var(--color-gold-deep) 54%, transparent 60%);
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .navbar__links {
@@ -184,7 +196,7 @@
   bottom: 2px;
   height: 2px;
   border-radius: 2px;
-  background: var(--gradient-gold);
+  background: var(--color-primary);
 }
 
 .navlink--active:hover {
@@ -227,13 +239,13 @@
 
 .btn--primary {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   box-shadow: var(--shadow-xs);
 }
 
 .btn--primary:hover:not(:disabled) {
   background: var(--color-primary-hover);
-  color: #fff;
+  color: var(--color-on-primary);
   text-decoration: none;
 }
 
@@ -463,21 +475,56 @@
 .auth {
   display: grid;
   grid-template-columns: 1.05fr 1fr;
-  min-height: calc(100vh - var(--header-h));
+  /* dvh, not vh — avoids the layout jump under the iOS Safari address bar. */
+  min-height: calc(100dvh - var(--header-h));
 }
 
 .auth__aside {
   position: relative;
   overflow: hidden;
   padding: 56px 56px;
-  color: #dde7fb;
+  color: var(--color-text);
   background:
-    radial-gradient(1200px 500px at -10% -20%, rgba(58, 95, 208, 0.45), transparent 60%),
-    radial-gradient(900px 600px at 120% 120%, rgba(193, 154, 54, 0.26), transparent 55%),
-    linear-gradient(155deg, #15296b, #081024);
+    var(--paper-grain),
+    radial-gradient(1100px 520px at -8% -15%, oklch(79% 0.084 110 / 0.32), transparent 60%),
+    radial-gradient(880px 600px at 116% 118%, oklch(63% 0.045 78 / 0.30), transparent 55%),
+    linear-gradient(155deg, oklch(94% 0.012 108), oklch(88% 0.014 100));
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* Kintsugi join — a gold seam where the two panels meet */
+.auth__aside::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, var(--color-gold) 14%, var(--color-gold-soft) 50%, var(--color-gold) 86%, transparent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Dark theme — the aside becomes a dark tea-room panel so the (now light)
+   ink/body/muted text keeps full contrast. Without this the light text would
+   sit on the light washi gradient and vanish. */
+:root[data-theme="dark"] .auth__aside {
+  background:
+    var(--paper-grain),
+    radial-gradient(1100px 520px at -8% -15%, oklch(72% 0.060 78 / 0.16), transparent 60%),
+    radial-gradient(880px 600px at 116% 118%, oklch(62% 0.070 115 / 0.14), transparent 55%),
+    linear-gradient(155deg, oklch(31% 0.016 52), oklch(23% 0.012 48));
+}
+
+/* Short kintsugi seam between the intro copy and the feature list */
+.auth__seam {
+  width: 56px;
+  height: 2px;
+  border-radius: 2px;
+  margin: 0 0 28px;
+  background: var(--gradient-gold);
 }
 
 .auth__aside .brand__mark {
@@ -493,21 +540,22 @@
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 22px;
-  color: #fff;
+  color: var(--color-ink);
   margin-bottom: 40px;
 }
 
 .auth__headline {
   font-size: 34px;
-  color: #fff;
+  color: var(--color-ink);
   line-height: 1.15;
   margin-bottom: 16px;
   max-width: 18ch;
+  text-wrap: balance;
 }
 
 .auth__sub {
   font-size: 16px;
-  color: #c2d2f2;
+  color: var(--color-muted);
   max-width: 42ch;
   margin-bottom: 32px;
 }
@@ -524,14 +572,14 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  color: #d6e1f7;
+  color: var(--color-text);
   font-size: 15px;
 }
 
 .auth__points svg {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--color-accent);
+  color: var(--color-primary);
 }
 
 .auth__main {
@@ -570,6 +618,23 @@
   .auth__aside {
     display: none;
   }
+}
+
+/* Quiet entrance — the panels settle in once on load. Calm by intent (a low
+   motion register suits the wabi-sabi direction); collapses to static under
+   reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .auth__aside-brand { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.02s both; }
+  .auth__headline    { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both; }
+  .auth__sub         { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both; }
+  .auth__seam        { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both; }
+  .auth__points      { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both; }
+  .auth__form        { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.10s both; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ----- Stat cards (dashboard) ----------------------------------------- */
@@ -793,7 +858,7 @@
   height: 64px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
-  color: #fff;
+  color: var(--color-on-primary);
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 26px;
@@ -817,7 +882,7 @@
   right: 0;
   height: 2px;
   background: var(--gold-line);
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 .footer__top {
@@ -846,7 +911,7 @@
 }
 
 .footer__col h4 {
-  color: var(--color-accent);
+  color: var(--color-gold);
   font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -988,7 +1053,7 @@
 }
 
 .course-card__banner--alt {
-  background: linear-gradient(135deg, #1d2c52, #0a1330);
+  background: linear-gradient(135deg, var(--color-accent-dark), var(--color-primary-dark));
 }
 
 .course-card__banner-icon {
@@ -1093,6 +1158,242 @@
   margin-top: 6px;
 }
 
+/* ----- Marketplace hero (course-discovery front door) ------------------ */
+/* A washi-textured band finished with a kintsugi gold seam. Gives the
+   marketplace its own identity instead of the shared .page-header, and folds
+   search + sort into the masthead so it reads as a real storefront. */
+.market-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 30px 32px 26px;
+  margin-bottom: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  background:
+    var(--paper-grain),
+    radial-gradient(900px 360px at -6% -45%, oklch(79% 0.084 110 / 0.20), transparent 60%),
+    radial-gradient(760px 440px at 112% 145%, oklch(63% 0.045 78 / 0.22), transparent 55%),
+    linear-gradient(150deg, oklch(95% 0.010 108), oklch(90% 0.012 100));
+}
+
+/* Kintsugi seam along the foot of the band. */
+.market-hero::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--gold-line);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .market-hero {
+  background:
+    var(--paper-grain),
+    radial-gradient(900px 360px at -6% -45%, oklch(72% 0.060 78 / 0.14), transparent 60%),
+    radial-gradient(760px 440px at 112% 145%, oklch(62% 0.070 115 / 0.12), transparent 55%),
+    linear-gradient(150deg, oklch(31% 0.016 52), oklch(26% 0.013 50));
+}
+
+.market-hero__intro h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.market-hero__sub {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 15px;
+}
+
+.market-hero__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.market-hero__controls .search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.market-hero__controls .select {
+  flex: 0 0 200px;
+}
+
+@media (max-width: 640px) {
+  .market-hero {
+    padding: 24px 20px 20px;
+  }
+  .market-hero__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .market-hero__controls .search,
+  .market-hero__controls .select {
+    flex: none;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .market-hero__intro {
+    animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* ----- Skeleton loaders (marketplace grid) ----------------------------- */
+.course-card--skeleton {
+  pointer-events: none;
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, oklch(100% 0 0 / 0.16), transparent);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton__banner {
+  height: 96px;
+  border-radius: 0;
+}
+
+.skeleton__line {
+  height: 12px;
+  margin-bottom: 10px;
+}
+
+.skeleton__line--title { height: 16px; width: 72%; margin-bottom: 14px; }
+.skeleton__line--meta  { width: 42%; }
+.skeleton__line--short { width: 58%; }
+.skeleton__line--pill  { width: 76px; margin: 0; }
+
+.skeleton__btn {
+  width: 92px;
+  height: 30px;
+}
+
+@keyframes skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+
+/* ----- Featured course (marketplace spotlight) ------------------------- */
+/* A wide, asymmetric tile leading the discover grid. The art panel carries a
+   kintsugi glint so the spotlight feels brand-made, not a blown-up card. */
+.featured-course {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  margin-bottom: 22px;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.featured-course__art {
+  position: relative;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
+}
+
+/* Kintsugi glint across the art panel. */
+.featured-course__art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(118deg, transparent 42%, var(--color-gold-soft) 48%, var(--color-gold) 51%, var(--color-gold-deep) 54%, transparent 60%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.featured-course__art-icon svg {
+  width: 54px;
+  height: 54px;
+}
+
+.featured-course__body {
+  display: flex;
+  flex-direction: column;
+  padding: 26px 28px;
+}
+
+.featured-course__badge {
+  align-self: flex-start;
+  margin-bottom: 14px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-fixed);
+  background: linear-gradient(135deg, var(--color-gold-soft), var(--color-gold));
+  box-shadow: var(--shadow-xs);
+}
+
+.featured-course__title {
+  font-size: 24px;
+  margin: 0 0 4px;
+}
+
+.featured-course__meta {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.featured-course__summary {
+  margin: 0 0 16px;
+  font-size: 15px;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.featured-course__foot {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .featured-course {
+    grid-template-columns: 1fr;
+  }
+  .featured-course__art {
+    min-height: 120px;
+  }
+}
+
 /* ----- Filters / search bar (marketplace) ------------------------------ */
 .filters {
   display: flex;
@@ -1148,11 +1449,32 @@
 .chip--active {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .chip--active:hover {
-  color: #fff;
+  color: var(--color-on-primary);
+}
+
+/* Marketplace topic filters — a kintsugi seam marks the active topic. The
+   extra row-gap keeps the seam clear of the next row when chips wrap. */
+.chips--topics {
+  row-gap: 16px;
+}
+
+.chips--topics .chip {
+  position: relative;
+}
+
+.chips--topics .chip--active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -7px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gold-line);
 }
 
 /* ----- Empty state ----------------------------------------------------- */
@@ -1355,15 +1677,16 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #fff;
+  color: var(--ink-fixed);
   background: linear-gradient(135deg, var(--tier-a), var(--tier-b));
 }
 
-.tier--bronze   { --tier-a: #b45309; --tier-b: #f59e0b; }
-.tier--silver   { --tier-a: #64748b; --tier-b: #cbd5e1; }
-.tier--gold     { --tier-a: #d97706; --tier-b: #fbbf24; }
-.tier--platinum { --tier-a: #0e7490; --tier-b: #22d3ee; }
-.tier--diamond  { --tier-a: #6d28d9; --tier-b: #818cf8; }
+/* Earthy metallics — distinguishable but kept within the natural palette. */
+.tier--bronze   { --tier-a: oklch(58% 0.090 50);  --tier-b: oklch(72% 0.080 62); }
+.tier--silver   { --tier-a: oklch(70% 0.012 80);  --tier-b: oklch(85% 0.010 90); }
+.tier--gold     { --tier-a: oklch(68% 0.100 80);  --tier-b: oklch(83% 0.090 90); }
+.tier--platinum { --tier-a: oklch(74% 0.040 140); --tier-b: oklch(87% 0.038 150); }
+.tier--diamond  { --tier-a: oklch(76% 0.042 178); --tier-b: oklch(88% 0.036 182); }
 
 /* ----- Horizontal course rows ------------------------------------------ */
 .course-rows {
@@ -1397,7 +1720,7 @@
   flex-shrink: 0;
   border-radius: var(--radius);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
-  color: #fff;
+  color: var(--color-on-primary);
   font-family: var(--font-display);
   font-size: 26px;
   font-weight: 800;
@@ -1483,7 +1806,8 @@
 
 /* ----- 404 page -------------------------------------------------------- */
 .notfound {
-  min-height: calc(100vh - var(--header-h));
+  /* dvh, not vh — avoids the layout jump under the iOS Safari address bar. */
+  min-height: calc(100dvh - var(--header-h));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1501,10 +1825,7 @@
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.04em;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--color-primary);
   margin-bottom: 8px;
 }
 
@@ -1523,6 +1844,15 @@
   gap: 10px;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* Quiet entrance — shares the auth pages' rise so a 404 still feels like Cesffo.
+   Collapses to static under reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .notfound__code    { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.02s both; }
+  .notfound h1       { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.10s both; }
+  .notfound p        { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both; }
+  .notfound__actions { animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both; }
 }
 
 /* ----- Piggy-bank savings progress (account level) --------------------- */
@@ -1552,7 +1882,7 @@
 
 .piggy__coin {
   fill: url(#piggyCoin);
-  stroke: #8f6f1d;
+  stroke: var(--color-primary-dark);
   stroke-width: 1;
 }
 
@@ -1587,8 +1917,8 @@
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--color-accent-dark);
-  background: linear-gradient(135deg, rgba(193, 154, 54, 0.16), rgba(193, 154, 54, 0.08));
-  border: 1px solid rgba(193, 154, 54, 0.35);
+  background: linear-gradient(135deg, oklch(79% 0.084 110 / 0.22), oklch(79% 0.084 110 / 0.10));
+  border: 1px solid oklch(79% 0.084 110 / 0.45);
   padding: 3px 10px;
   border-radius: var(--radius-pill);
   white-space: nowrap;
@@ -1607,8 +1937,8 @@
   left: 14px;
   font-size: 12px;
   font-weight: 800;
-  color: #3a2c06;
-  background: linear-gradient(135deg, #f3dd84, #c19a36);
+  color: var(--ink-fixed);
+  background: linear-gradient(135deg, oklch(85% 0.080 110), oklch(79% 0.084 110));
   padding: 3px 10px;
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm);
@@ -1765,7 +2095,7 @@
 
 .topic-nav__link--active .topic-nav__index {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .topic-nav__title {

@@ -77,6 +77,8 @@ export default function Home() {
           money skills to work.
         </p>
 
+        <div className="auth__seam" aria-hidden="true" />
+
         <ul className="auth__points">
           <li><CheckIcon /> Structured lessons on budgeting, saving &amp; investing</li>
           <li><CheckIcon /> Interactive tools and real-world scenarios</li>
@@ -101,6 +103,7 @@ export default function Home() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
+                autoFocus
               />
             </div>
 

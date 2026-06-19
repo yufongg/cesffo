@@ -95,8 +95,10 @@ export default function Register() {
           resources designed to make money simple.
         </p>
 
+        <div className="auth__seam" aria-hidden="true" />
+
         <ul className="auth__points">
-          <li><CheckIcon /> Free to join — no card required</li>
+          <li><CheckIcon /> Free to join, no card required</li>
           <li><CheckIcon /> Beginner-friendly, expert-built lessons</li>
           <li><CheckIcon /> Track progress across every course</li>
         </ul>
@@ -112,7 +114,7 @@ export default function Register() {
               <label htmlFor="email" className="label">Email</label>
               <input id="email" type="email" className="input" value={form.email}
                 onChange={update('email')} placeholder="you@example.com" required
-                autoComplete="email" />
+                autoComplete="email" autoFocus />
             </div>
 
             <div className="field">

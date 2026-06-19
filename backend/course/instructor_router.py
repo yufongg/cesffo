@@ -12,6 +12,7 @@ from model.models import (
 )
 from common.sanitize import sanitize_html, strip_tags
 from common.audit import log_action
+from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid, client_ip as _client_ip
 from user.auth import ROLE_ADMIN
 from user.auth_router import require_instructor
 
@@ -24,17 +25,6 @@ ACTIVITY_TYPES = Literal["mcq_single", "mcq_multi", "short_answer"]
 
 
 # --- Helpers ---
-def _parse_uid(current_user: dict) -> UUID:
-    try:
-        return UUID(current_user["user_id"])
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
-def _client_ip(request: Request) -> Optional[str]:
-    return request.client.host if request.client else None
-
-
 def _require_owned_course(session, course_id: UUID, current_user: dict) -> Course:
     """AS-04: an instructor may only act on their own courses. Never trust an
     instructor_id from the request body — always re-derive from the JWT and
@@ -624,10 +614,3 @@ async def delete_activity(activity_id: str, request: Request, current_user: dict
             resource_id=aid, ip_address=_client_ip(request),
         )
         session.commit()
-
-
-def _to_uuid(raw: str) -> UUID:
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid resource id")

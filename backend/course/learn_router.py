@@ -11,6 +11,7 @@ from model.models import (
     Course, CourseEnrollment, Module, ReadingMaterial,
     InteractiveActivity, ActivitySubmission, ModuleProgress, User,
 )
+from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
 from user.auth_router import get_current_user
 from core.rate_limit import limiter
 
@@ -18,18 +19,6 @@ router = APIRouter(prefix="/api/v1", tags=["Learning"])
 
 
 # --- Helpers ---
-def _parse_uid(current_user: dict) -> UUID:
-    try:
-        return UUID(current_user["user_id"])
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
-def _to_uuid(raw: str) -> UUID:
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid resource id")
 
 
 def _require_enrolled_course(session, course_id: UUID, student_id: UUID) -> Course:

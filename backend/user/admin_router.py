@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 
+from core.rate_limit import limiter
+from common.security import to_uuid
 from db.db import get_db_session
 from model.models import User
 from .auth import (
@@ -62,10 +64,8 @@ def _to_view(user: User) -> AdminUserView:
 
 
 def parse_uuid(raw: str) -> UUID:
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user id")
+    # Specialises the shared parser with this router's error message.
+    return to_uuid(raw, detail="Invalid user id")
 
 
 def retrieve_user(session, uid: UUID) -> User:
@@ -115,6 +115,7 @@ async def list_users(
 #^ ====
 
 @router.post("/users", response_model=TempPasswordResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
 async def create_user(request: Request, req: CreateUserRequest, admin: dict = Depends(require_admin)):
 
     role = validate_role(req.role)
@@ -190,6 +191,7 @@ async def set_status(request: Request, user_id: str, req: SetStatusRequest, admi
 
 
 @router.post("/users/{user_id}/reset-password", response_model=TempPasswordResponse)
+@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
 async def reset_password(request: Request, user_id: str, admin: dict = Depends(require_admin)):
     """Reset (not set) a user's password to a new strong random value.
     The admin never chooses the value; it is returned once for secure handoff."""

@@ -5,6 +5,7 @@ from jose import JWTError
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 
+from core.rate_limit import limiter
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
@@ -107,6 +108,7 @@ class ChangePasswordSchema(BaseModel):
 
 # --- Endpoints ---
 @router.post("/register", response_model=AuthResponseSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")  # throttle automated account creation / spam signups
 async def register_user(request: Request, req: UserRegistrationSchema):
     try:
         access_token, user_id, role = await register(
@@ -125,6 +127,7 @@ async def register_user(request: Request, req: UserRegistrationSchema):
 
 
 @router.post("/login", response_model=AuthResponseSchema)
+@limiter.limit("10/minute")  # blunt brute-force / credential-stuffing per IP (lockout guards per-account)
 async def login_user(request: Request, req: UserLoginSchema):
     try:
         access_token, user_id, role = await login(req.email, req.password)
@@ -169,6 +172,7 @@ async def get_profile(request: Request, current_user: dict = Depends(get_current
 
 
 @router.post("/change-password", response_model=AuthResponseSchema)
+@limiter.limit("5/minute")  # limit reset-token replay / password-churn attempts
 async def change_password_route(
     request: Request,
     req: ChangePasswordSchema,

@@ -17,6 +17,7 @@ from model.models import Category, Notification, Post, PostAttachment, Thread, U
 from user.auth import ROLE_ADMIN, SCOPE_ACCESS, decode_access_token
 from user.auth_router import get_current_user
 from common.audit import log_action
+from common.security import parse_uid as _parse_uid, client_ip as _client_ip
 from core.rate_limit import limiter
 from .schemas import (
     CategoryResponse,
@@ -43,13 +44,6 @@ MAX_CONTENT_LEN = 10000
 
 
 # --- Auth / ownership helpers -----------------------------------------------
-def _parse_uid(current_user: dict) -> UUID:
-    try:
-        return UUID(current_user["user_id"])
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
 def _is_admin(current_user: dict) -> bool:
     return current_user.get("role") == ROLE_ADMIN
 
@@ -61,10 +55,6 @@ def _require_owner_or_admin(owner_id: Optional[UUID], current_user: dict) -> Non
         return
     if owner_id is None or owner_id != _parse_uid(current_user):
         raise HTTPException(status_code=403, detail="You can only modify your own content")
-
-
-def _client_ip(request: Request) -> Optional[str]:
-    return request.client.host if request.client else None
 
 
 def make_slug(title: str) -> str:

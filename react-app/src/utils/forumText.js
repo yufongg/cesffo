@@ -20,6 +20,15 @@ export function formatDate(value) {
   });
 }
 
+// Strip rich-text markup down to its visible text — used to validate that a
+// post/reply isn't effectively empty before submitting.
+export function plainText(html) {
+  return (html || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+}
+
 export function insertAroundSelection(textarea, before, after = '') {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
