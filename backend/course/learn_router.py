@@ -8,8 +8,7 @@ from sqlalchemy import select, func
 
 from db.db import get_db_session
 from model.models import (
-    Course, CourseEnrollment, Module, ReadingMaterial,
-    InteractiveActivity, ActivitySubmission, ModuleProgress, User,
+    Course, CourseEnrollment, Module, InteractiveActivity, ActivitySubmission, ModuleProgress, User,
 )
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
 from user.auth_router import get_current_user

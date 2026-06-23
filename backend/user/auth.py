@@ -1,9 +1,8 @@
 import os
-import re
 import secrets
 from argon2 import PasswordHasher, exceptions
 from datetime import datetime, timedelta, timezone
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select

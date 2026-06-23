@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request, status #, HTTPException, Body, Form, Depends,
 from fastapi.concurrency import asynccontextmanager
-from fastapi.responses import HTMLResponse , JSONResponse #, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse #, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
