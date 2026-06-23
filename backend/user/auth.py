@@ -115,8 +115,8 @@ def parse_user_id(raw: str) -> UUID:
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
     
-    #! Password strength is using the NEW NIST as defined in slides.
-    #! IIRC it is at least 8 char, no need for special char and or digits. but need to check against common dictionary passwords
+    # NIST SP 800-63B style: enforce length and block known-bad / predictable
+    # passwords rather than requiring character-class composition rules.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
@@ -175,11 +175,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
 
         hashed_password = hash_password(password)
 
-        #^ ONLY if the email and usernames are unique will the new account be created using hte ORM.
         try:
-
-            #^ This creates a new user object. Because this object is NEWLY created and does not exists in ,
-            #^ when the .commit method is called, the database will know its an insert
             user = User(
                 email=email,
                 username=username,
@@ -188,8 +184,6 @@ async def register(email: EmailStr, username: str, password: str, password_confi
             )
             session.add(user)
             session.commit()
-
-            #^ I think this just flushes
             session.refresh(user)
 
             token = create_access_token(user.user_id.hex, user.role)

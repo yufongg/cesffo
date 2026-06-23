@@ -20,6 +20,12 @@ services:
       DB_NAME: ${POSTGRES_DB} # The name of the database to create
       DB_USER: ${POSTGRES_USER} # A user for the database
       DB_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+      # Security config consumed by the backend. JWT_SECRET_KEY is REQUIRED when
+      # APP_ENV=production (the app refuses to start without it). CORS origins
+      # must be set to the real frontend domain(s) in production.
+      APP_ENV: ${APP_ENV:-development}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     depends_on:
       db: # Ensure the 'db' service starts before the 'web' service
         condition: service_healthy
@@ -31,14 +37,15 @@ services:
       timeout: 10s
       retries: 5
 
-  # MySQL database service
+  # PostgreSQL database service
   db:
     build:
       context: ./postgres # Build context is the 'postgres' directory
       dockerfile: Dockerfile.postgres
     container_name: postgres_database
-    ports:
-      - "5432:5432" 
+    # No host port publish: the database is reachable only on the internal
+    # Docker network (via `expose`). The dev override re-publishes 5432 to the
+    # host for local DB tooling.
     networks:
       - net
     expose:
@@ -50,7 +57,7 @@ services:
       APP_USER: ${POSTGRES_USER}
       APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      # Persist MySQL data to a named volume or host directory
+      # Persist PostgreSQL data to a named volume
       - db_data:/var/lib/postgresql/data
     healthcheck:
       # Single shell string. Passing -U avoids pg_isready falling back to the
