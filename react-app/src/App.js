@@ -9,6 +9,7 @@ import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
+import Cart from './pages/Cart';
 import CoursePreview from './pages/CoursePreview';
 import CourseLearn from './pages/CourseLearn';
 import Forum from './pages/Forum';
@@ -53,6 +54,15 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <Marketplace />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/cart"
+                    element={
+                      <ProtectedRoute>
+                        <Cart />
                       </ProtectedRoute>
                     }
                   />

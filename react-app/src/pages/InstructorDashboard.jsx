@@ -3,7 +3,15 @@ import { InstructorCourseApi } from '../services/instructorCourseApi';
 import { InstructorContentApi } from '../services/instructorContentApi';
 import { useAuth } from '../components/Security/RoleCheck';
 
-const initialCourseForm = { course_name: '', summary: '', level: '', tags: '', xp_reward: 0 };
+const initialCourseForm = {
+  course_name: '',
+  summary: '',
+  level: '',
+  tags: '',
+  xp_reward: 0,
+  price_cents: 0,
+  currency: 'SGD',
+};
 const initialModuleForm = { title: '', description: '', order_index: 0 };
 const initialMaterialForm = { title: '', body: '', order_index: 0 };
 const initialMediaForm = { title: '', media_url: '', media_type: 'video', order_index: 0 };
@@ -207,6 +215,8 @@ export default function InstructorDashboard() {
       level: courseForm.level,
       tags: courseForm.tags.split(',').map((t) => t.trim()).filter(Boolean),
       xp_reward: Number(courseForm.xp_reward) || 0,
+      price_cents: Number(courseForm.price_cents) || 0,
+      currency: (courseForm.currency || 'SGD').toUpperCase(),
     };
 
     try {
@@ -230,6 +240,8 @@ export default function InstructorDashboard() {
       level: course.level || '',
       tags: (course.tags || []).join(', '),
       xp_reward: course.xp_reward || 0,
+      price_cents: course.price_cents || 0,
+      currency: course.currency || 'SGD',
     });
     setError('');
   }
@@ -568,6 +580,27 @@ export default function InstructorDashboard() {
               />
             </div>
             <div className="field">
+              <label htmlFor="price_cents" className="label">Price (cents)</label>
+              <input
+                id="price_cents"
+                className="input"
+                type="number"
+                min="0"
+                value={courseForm.price_cents}
+                onChange={(e) => setCourseField('price_cents', e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="currency" className="label">Currency</label>
+              <input
+                id="currency"
+                className="input"
+                maxLength="3"
+                value={courseForm.currency}
+                onChange={(e) => setCourseField('currency', e.target.value.toUpperCase())}
+              />
+            </div>
+            <div className="field">
               <label htmlFor="tags" className="label">Tags</label>
               <input
                 id="tags"
@@ -620,6 +653,7 @@ export default function InstructorDashboard() {
                     <th>Name</th>
                     <th>Level</th>
                     <th>XP</th>
+                    <th>Price</th>
                     <th>Tags</th>
                     <th>Actions</th>
                   </tr>
@@ -630,6 +664,14 @@ export default function InstructorDashboard() {
                       <td>{course.course_name}</td>
                       <td>{course.level || '—'}</td>
                       <td>{course.xp_reward ?? 0}</td>
+                      <td>
+                        {course.price_cents
+                          ? new Intl.NumberFormat('en-SG', {
+                            style: 'currency',
+                            currency: course.currency || 'SGD',
+                          }).format(course.price_cents / 100)
+                          : 'Free'}
+                      </td>
                       <td>{(course.tags || []).join(', ') || '—'}</td>
                       <td>
                         <div className="row-actions">

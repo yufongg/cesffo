@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
+import { CartApi } from '../services/cartApi';
 
 // Left-hand dashboard navigation, inspired by the OffSec console layout.
 //? These are presentational entry points only — the destinations (cart,
 //? achievements, etc.) are placeholders for now. Routes that don't exist yet
 //? fall through to the catch-all <NotFound/> in App.js, so nothing breaks.
 
+// --- Icons ---
 function BrowseIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -70,30 +73,159 @@ function SupportIcon() {
 
 // Destination, label and icon for each item. `end` keeps the active state from
 // bleeding into child routes.
+// --- Navigation data ---
 const ITEMS = [
   { to: '/marketplace', label: 'Browse courses', Icon: BrowseIcon },
-  { to: '/cart', label: 'Cart', Icon: CartIcon },
   { to: '/achievements', label: 'Achievements', Icon: TrophyIcon },
   { to: '/leaderboard', label: 'Leaderboard', Icon: LeaderboardIcon },
   { to: '/forums', label: 'Forums', Icon: ForumIcon },
   { to: '/support', label: 'Help & support', Icon: SupportIcon },
 ];
 
+// --- Helpers ---
+function formatMoney(cents = 0, currency = 'SGD') {
+  if (!cents) return 'Free';
+  return new Intl.NumberFormat('en-SG', {
+    style: 'currency',
+    currency: currency || 'SGD',
+  }).format(cents / 100);
+}
+
 export default function DashboardSidebar() {
+  const cartHoverRef = useRef(null);
+  const cartPopoverRef = useRef(null);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartPosition, setCartPosition] = useState({ top: 0, left: 0 });
+  const [cartLoading, setCartLoading] = useState(false);
+  const [cartError, setCartError] = useState('');
+  const [cart, setCart] = useState({ items: [], item_count: 0, subtotal_cents: 0, currency: 'SGD' });
+
   const linkClass = ({ isActive }) =>
     isActive ? 'side-nav__link side-nav__link--active' : 'side-nav__link';
 
+  // --- Cart preview ---
+  async function openCartPreview() {
+    const rect = cartHoverRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 320;
+      const gap = 12;
+      const pagePad = 16;
+      const canOpenRight = rect.right + gap + width <= window.innerWidth - pagePad;
+      setCartPosition({
+        top: Math.max(pagePad, rect.top),
+        left: canOpenRight
+          ? rect.right + gap
+          : Math.max(pagePad, window.innerWidth - width - pagePad),
+      });
+    }
+    setCartOpen(true);
+    setCartLoading(true);
+    setCartError('');
+    try {
+      const data = await CartApi.getCart();
+      setCart(data || { items: [], item_count: 0, subtotal_cents: 0, currency: 'SGD' });
+    } catch (e) {
+      setCartError(e.message || 'Unable to load cart');
+    } finally {
+      setCartLoading(false);
+    }
+  }
+
+  function closeCartPreview(event) {
+    if (
+      event?.relatedTarget
+      && (
+        cartHoverRef.current?.contains(event.relatedTarget)
+        || cartPopoverRef.current?.contains(event.relatedTarget)
+      )
+    ) {
+      return;
+    }
+    setCartOpen(false);
+  }
+
+  const cartPopover = cartOpen ? createPortal(
+    <div
+      className="cart-popover"
+      role="status"
+      aria-live="polite"
+      ref={cartPopoverRef}
+      style={{ top: cartPosition.top, left: cartPosition.left }}
+      onMouseEnter={() => setCartOpen(true)}
+      onMouseLeave={closeCartPreview}
+      onFocus={() => setCartOpen(true)}
+      onBlur={closeCartPreview}
+    >
+      <div className="cart-popover__head">
+        <strong>Cart</strong>
+        <span>{cart.item_count || 0} {(cart.item_count || 0) === 1 ? 'item' : 'items'}</span>
+      </div>
+
+      {cartLoading ? (
+        <p className="cart-popover__muted">Loading…</p>
+      ) : cartError ? (
+        <p className="cart-popover__error">{cartError}</p>
+      ) : (cart.items || []).length === 0 ? (
+        <p className="cart-popover__muted">Your cart is empty.</p>
+      ) : (
+        <>
+          <ul className="cart-popover__list">
+            {(cart.items || []).slice(0, 3).map((item) => (
+              <li key={item.course_id}>
+                <span>{item.course_name}</span>
+                <strong>{formatMoney(item.price_cents, item.currency)}</strong>
+              </li>
+            ))}
+          </ul>
+          {(cart.items || []).length > 3 && (
+            <p className="cart-popover__muted">+{cart.items.length - 3} more</p>
+          )}
+          <div className="cart-popover__total">
+            <span>Total</span>
+            <strong>{formatMoney(cart.subtotal_cents, cart.currency)}</strong>
+          </div>
+        </>
+      )}
+      <NavLink to="/cart" className="cart-popover__link">View cart</NavLink>
+    </div>,
+    document.body,
+  ) : null;
+
   return (
-    <aside className="side-nav" aria-label="Dashboard">
-      <p className="side-nav__heading">Learn</p>
-      <nav className="side-nav__group">
-        {ITEMS.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={to} className={linkClass}>
-            <span className="side-nav__icon"><Icon /></span>
-            {label}
-          </NavLink>
-        ))}
-      </nav>
-    </aside>
+    <>
+      <aside className="side-nav" aria-label="Dashboard">
+        <p className="side-nav__heading">Learn</p>
+        <nav className="side-nav__group">
+          {ITEMS.slice(0, 1).map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={linkClass}>
+              <span className="side-nav__icon"><Icon /></span>
+              {label}
+            </NavLink>
+          ))}
+
+          <div
+            className="side-nav__item side-nav__item--cart"
+            ref={cartHoverRef}
+            onMouseEnter={openCartPreview}
+            onMouseLeave={closeCartPreview}
+            onFocus={openCartPreview}
+            onBlur={closeCartPreview}
+          >
+            <NavLink to="/cart" className={linkClass}>
+              <span className="side-nav__icon"><CartIcon /></span>
+              Cart
+            </NavLink>
+          </div>
+
+          {ITEMS.slice(1).map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={linkClass}>
+              <span className="side-nav__icon"><Icon /></span>
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      {cartPopover}
+    </>
   );
 }

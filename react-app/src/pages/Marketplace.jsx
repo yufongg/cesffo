@@ -43,6 +43,14 @@ function BookIcon() {
   );
 }
 
+function formatMoney(cents = 0, currency = 'SGD') {
+  if (!cents) return 'Free';
+  return new Intl.NumberFormat('en-SG', {
+    style: 'currency',
+    currency: currency || 'SGD',
+  }).format(cents / 100);
+}
+
 // Spotlight for the single most-popular course, shown only on the unfiltered
 // "Most popular" view. A wider, asymmetric tile so it reads as the lead rather
 // than just another card in the grid.
@@ -54,6 +62,8 @@ function FeaturedCourse({ course }) {
     tags = [],
     summary,
     xp_reward = 0,
+    price_cents = 0,
+    currency = 'SGD',
     enrollment_count = 0,
   } = course;
 
@@ -76,7 +86,9 @@ function FeaturedCourse({ course }) {
           </div>
         )}
         <div className="featured-course__foot">
-          <span className="course-card__enrollments">{enrollment_count} enrolled</span>
+          <span className="course-card__enrollments">
+            {formatMoney(price_cents, currency)} · {enrollment_count} enrolled
+          </span>
           <button
             type="button"
             className="btn btn--primary"
