@@ -29,7 +29,8 @@ XP_PER_LEVEL = 500
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
 
-#! The password is plaintext but i import the same hasher. So it should workthe same
+# Passwords are plaintext here; get_or_create_user hashes them with the same
+# Argon2 hasher the app uses at runtime.
 USERS = [
     {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},
     {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},
@@ -38,8 +39,7 @@ USERS = [
     {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},
 ]
 
-#! Categories double as the discussion-forum topic taxonomy (the Category table
-#! is shared). Jon can change this if needed.
+# Categories double as the discussion-forum topic taxonomy (the Category table is shared).
 CATEGORIES = [
     {"name": "Budgeting", "slug": "budgeting", "description": "Ask questions about budgeting and managing expenses.", "display_order": 1},
     {"name": "Saving", "slug": "saving", "description": "Discuss savings habits, emergency funds, and saving goals.", "display_order": 2},
@@ -50,7 +50,6 @@ CATEGORIES = [
     {"name": "Course Help", "slug": "course-help", "description": "Get help with course materials and platform usage.", "display_order": 7},
 ]
 
-#! If required Jon can change this info, table and columns.
 COURSES = [
     {"name": "Budgeting 101: Take Control of Your Money", "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "Build your first budget, track spending, and put every dollar to work."},
     {"name": "Building an Emergency Fund",                "level": "Beginner",     "tags": ["Saving", "Budgeting"],            "summary": "Why a safety net matters and a step-by-step plan to build one."},

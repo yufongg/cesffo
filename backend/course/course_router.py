@@ -17,7 +17,6 @@ MAX_TAG_LEN = 50
 RECOMMENDED_LIMIT = 6
 LEADERBOARD_LIMIT = 10
 
-#! Type for course display
 class CourseCard(BaseModel):
     course_id: str
     course_name: str
@@ -30,7 +29,6 @@ class CourseCard(BaseModel):
     is_enrolled: bool = False
     progress: Optional[float] = None
 
-#! Struct for the response
 class OverviewResponse(BaseModel):
     enrolled: List[CourseCard]
     recommended: List[CourseCard]

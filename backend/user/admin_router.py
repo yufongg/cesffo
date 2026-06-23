@@ -40,7 +40,6 @@ class AssignRoleRequest(BaseModel):
 class SetStatusRequest(BaseModel):
     is_active: bool
 
-#! For now this does nothing
 class TempPasswordResponse(BaseModel):
     user_id: str
     temp_password: str
@@ -109,10 +108,6 @@ async def list_users(
         users = session.scalars(stmt).all()
         return [_to_view(u) for u in users]
 
-
-#^ ====
-#^ Routes
-#^ ====
 
 @router.post("/users", response_model=TempPasswordResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(request: Request, req: CreateUserRequest, admin: dict = Depends(require_admin)):
