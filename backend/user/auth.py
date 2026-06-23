@@ -29,7 +29,7 @@ MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
-SCOPE_PASSWORD_RESET = "password_reset" # nosec B105
+SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105 - token scope label, not a password
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -202,8 +202,9 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            except Exception:
-                raise UserNotFoundError()
+            except Exception:  # nosec B110 - intentionally equalizes missing-user timing
+                pass
+            raise UserNotFoundError()
 
         # Banned or soft-deleted accounts must never authenticate.
         if existing_user.is_deleted or not existing_user.is_active:
