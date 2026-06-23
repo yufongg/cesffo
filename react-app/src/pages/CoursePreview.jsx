@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import SafeHtml from '../components/Security/SafeHtml';
+import { CartApi } from '../services/cartApi';
 
 // Read-only syllabus for a course the student has NOT enrolled in yet. The
 // backend /preview endpoint only returns the outline (module titles, blurbs and
@@ -50,6 +51,14 @@ function PreviewModule({ module, index }) {
   );
 }
 
+function formatMoney(cents = 0, currency = 'SGD') {
+  if (!cents) return 'Free';
+  return new Intl.NumberFormat('en-SG', {
+    style: 'currency',
+    currency: currency || 'SGD',
+  }).format(cents / 100);
+}
+
 export default function CoursePreview() {
   const { courseId } = useParams();
   const navigate = useNavigate();
@@ -57,6 +66,7 @@ export default function CoursePreview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [enrolling, setEnrolling] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
   const [enrollError, setEnrollError] = useState('');
 
   const load = useCallback(() => {
@@ -80,6 +90,19 @@ export default function CoursePreview() {
     } catch (e) {
       setEnrollError(e.message);
       setEnrolling(false);
+    }
+  };
+
+  const addToCart = async () => {
+    setEnrollError('');
+    setAddingToCart(true);
+    try {
+      await CartApi.addCourse(courseId);
+      setCourse((prev) => ({ ...prev, is_in_cart: true }));
+    } catch (e) {
+      setEnrollError(e.message);
+    } finally {
+      setAddingToCart(false);
     }
   };
 
@@ -121,6 +144,7 @@ export default function CoursePreview() {
               <div><strong>{course.module_count}</strong><span>Modules</span></div>
               <div><strong>{course.total_activities}</strong><span>Quiz questions</span></div>
               <div><strong>{course.enrollment_count}</strong><span>Enrolled</span></div>
+              <div><strong>{formatMoney(course.price_cents, course.currency)}</strong><span>Price</span></div>
               {course.xp_reward > 0 && (
                 <div><strong>{course.xp_reward.toLocaleString()}</strong><span>XP reward</span></div>
               )}
@@ -135,6 +159,14 @@ export default function CoursePreview() {
                 <Link to={`/courses/${courseId}/learn`} className="btn btn--primary">
                   Go to course
                 </Link>
+              ) : course.price_cents > 0 && course.is_in_cart ? (
+                <Link to="/cart" className="btn btn--primary">
+                  Go to cart
+                </Link>
+              ) : course.price_cents > 0 ? (
+                <button type="button" className="btn btn--primary" onClick={addToCart} disabled={addingToCart}>
+                  {addingToCart ? 'Adding…' : 'Add to cart'}
+                </button>
               ) : (
                 <button type="button" className="btn btn--primary" onClick={enroll} disabled={enrolling}>
                   {enrolling ? 'Enrolling…' : 'Enroll for free'}
