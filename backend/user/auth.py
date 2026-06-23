@@ -1,10 +1,9 @@
 import os
-import re
 import secrets
 from argon2 import PasswordHasher, exceptions
 from datetime import datetime, timedelta, timezone
-from fastapi import HTTPException, Request
-from jose import JWTError, jwt
+from fastapi import HTTPException
+from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
 from typing import Tuple
@@ -30,7 +29,7 @@ MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
-SCOPE_PASSWORD_RESET = "password_reset"
+SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105 - token scope label, not a password
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -209,7 +208,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            except Exception:
+            except Exception:  # nosec B110 - intentionally equalizes missing-user timing
                 pass
             raise UserNotFoundError()
 
