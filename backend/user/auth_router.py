@@ -15,7 +15,7 @@ from .auth import (
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
-    SCOPE_PASSWORD_RESET, AUTH_SUCCESS, AUTH_FAILURE
+    SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
 
 
