@@ -23,14 +23,15 @@ XP_PER_LEVEL = 500
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
 
-# Passwords are plaintext here; get_or_create_user hashes them with the same
-# Argon2 hasher the app uses at runtime.
+# Demo-only fixtures: plaintext here, hashed by get_or_create_user with the same
+# Argon2 hasher the app uses at runtime. These are non-production seed accounts;
+# for real environments source these from env vars / a secrets manager instead.
 USERS = [
-    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},
-    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},
-    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},
-    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},
-    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},
+    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},  # nosec
+    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},  # nosec
+    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},  # nosec
+    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},  # nosec
+    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},  # nosec
 ]
 
 # Categories double as the discussion-forum topic taxonomy (the Category table is shared).

@@ -55,7 +55,7 @@ export default function ChangePassword() {
       }
 
       sessionStorage.removeItem('reset_token');
-      localStorage.setItem('access_token', data.access_token);
+      // Reset succeeded — the backend issued a real session cookie; keep hints.
       localStorage.setItem('user_role', data.user_role);
       localStorage.setItem('user_id', data.user_id);
 

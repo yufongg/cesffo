@@ -38,15 +38,15 @@ def test_enrolled_student_can_open_seeded_course_and_see_quiz():
         json={"email": DEMO_STUDENT_EMAIL, "password": DEMO_STUDENT_PASSWORD},
     )
     assert login.status_code == 200
-    token = login.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    # Auth is now an httpOnly cookie; TestClient's cookie jar stores it from the
+    # login response and replays it on subsequent requests automatically.
 
     with get_db_session() as session:
         course = session.scalar(select(Course).where(Course.course_name == DEMO_COURSE_NAME))
         assert course is not None
         course_id_hex = course.course_id.hex
 
-    response = client.get(f"/api/v1/courses/{course_id_hex}/learn", headers=headers)
+    response = client.get(f"/api/v1/courses/{course_id_hex}/learn")
     assert response.status_code == 200
     body = response.json()
 

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 export default function NotFound() {
   const navigate = useNavigate();
-  const isAuthed = Boolean(localStorage.getItem('access_token'));
+  const isAuthed = Boolean(localStorage.getItem('user_role'));
 
   return (
     <div className="notfound">

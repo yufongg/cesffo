@@ -24,12 +24,13 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+
 RESET_TOKEN_EXPIRE_MINUTES = 10
 MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
-SCOPE_PASSWORD_RESET = "password_reset"
+SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -51,6 +52,9 @@ _ph = PasswordHasher()
 # is not found so that "user missing" and "wrong password" take the same time,
 # closing the login timing side-channel used for account enumeration.
 _DUMMY_HASH = _ph.hash("timing-equalizer-not-a-real-password")
+
+AUTH_SUCCESS = "Authentication Success"
+AUTH_FAILURE = "Authentication Failed"
 
 # A tiny illustrative blocklist. In production, check against the Have I Been
 # Pwned k-anonymity API (send only the first 5 SHA-1 chars) or a local copy.
@@ -202,7 +206,8 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            except Exception:
+            # Intentional: verify runs only to equalize timing vs the real path.
+            except Exception:  # nosec B110
                 pass
             raise UserNotFoundError()
 

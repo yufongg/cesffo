@@ -106,8 +106,8 @@ async def test_login_function_user_not_found(mock_get_db_session):
 @patch("user.auth_router.register")
 def test_endpoint_register_success(mock_register_logic):
     """Test HTTP 201 Created behavior when underlying registration completes."""
-    # Mock the internal logic function payload response
-    mock_register_logic.return_value = ("session_token_123", uuid4())
+    # Mock the internal logic: register() returns (access_token, user_id, role).
+    mock_register_logic.return_value = ("session_token_123", uuid4(), "student")
 
     payload = {
         "email": "newuser@finwise.com",
@@ -119,7 +119,10 @@ def test_endpoint_register_success(mock_register_logic):
     response = client.post("/api/v1/auth/register", json=payload)
 
     assert response.status_code == 201
-    assert response.json()["access_token"] == "session_token_123"
+    # Token is delivered as an httpOnly cookie, not in the body.
+    assert "access_token" not in response.json()
+    assert response.cookies.get("access_token") == "session_token_123"
+    assert response.json()["user_role"] == "student"
     assert isinstance(UUID(response.json()["user_id"], version=4), UUID)
 
 
@@ -144,7 +147,8 @@ def test_endpoint_register_password_mismatch(mock_register_logic):
 @patch("user.auth_router.login")
 def test_endpoint_login_success(mock_login_logic):
     """Test HTTP 200 OK authorization handling for legitimate credentials."""
-    mock_login_logic.return_value = ("active_jwt_string", uuid4())
+    # login() returns (access_token, user_id, role).
+    mock_login_logic.return_value = ("active_jwt_string", uuid4(), "student")
 
     payload = {
         "email": "active_user@finwise.com",
@@ -154,7 +158,10 @@ def test_endpoint_login_success(mock_login_logic):
     response = client.post("/api/v1/auth/login", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["access_token"] == "active_jwt_string"
+    # Token is delivered as an httpOnly cookie, not in the body.
+    assert "access_token" not in response.json()
+    assert response.cookies.get("access_token") == "active_jwt_string"
+    assert response.json()["user_role"] == "student"
     assert isinstance(UUID(response.json()["user_id"], version=4), UUID)
 
 
