@@ -70,7 +70,7 @@ export default function Register() {
         return;
       }
 
-      localStorage.setItem('access_token', data.access_token);
+      // Session is the httpOnly cookie set by the backend; keep role/id as hints.
       localStorage.setItem('user_role', data.user_role);
       localStorage.setItem('user_id', data.user_id);
       navigate('/courses');

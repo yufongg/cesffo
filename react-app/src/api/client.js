@@ -1,12 +1,31 @@
+// The JWT now lives in an httpOnly cookie that the browser attaches
+// automatically (see `credentials: 'include'` below); JavaScript cannot read
+// it. We keep only non-sensitive role/id *hints* in localStorage so the SPA can
+// render the right nav and route guards without a round-trip — the backend
+// re-verifies the cookie on every request, so these are never trusted for auth.
 
-export function getToken() {
-  return localStorage.getItem('access_token');
+export function getRole() {
+  return localStorage.getItem('user_role');
+}
+
+export function isAuthenticated() {
+  return Boolean(localStorage.getItem('user_role'));
 }
 
 export function clearSession() {
-  localStorage.removeItem('access_token');
   localStorage.removeItem('user_role');
   localStorage.removeItem('user_id');
+}
+
+// Tell the backend to clear the httpOnly cookie (JS can't), then drop the local
+// hints. Always clears local state even if the network call fails.
+export async function logout() {
+  try {
+    await apiFetch('/api/v1/auth/logout', { method: 'POST' });
+  } catch {
+    /* ignore — still clear local UI state below */
+  }
+  clearSession();
 }
 
 // FastAPI's `detail` is either a string (HTTPException) or an array (422).
@@ -21,8 +40,6 @@ function messageFromDetail(data, fallback) {
 
 export async function apiFetch(path, { method = 'GET', body } = {}) {
   const headers = {};
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   // FormData (file uploads): let the browser set the multipart Content-Type +
   // boundary itself. Everything else is sent as JSON.
@@ -38,6 +55,7 @@ export async function apiFetch(path, { method = 'GET', body } = {}) {
     method,
     headers,
     body: payload,
+    credentials: 'include', // send the httpOnly auth cookie
   });
 
   let data = null;
@@ -57,12 +75,9 @@ export async function apiFetch(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-// Build a same-origin WebSocket URL carrying the JWT as a query param. Browsers
-// cannot set Authorization headers on a WebSocket, so the backend authenticates
-// the token from the query string before accepting the connection.
+// Build a same-origin WebSocket URL. The auth cookie is sent automatically on
+// the handshake (same origin), so no token is placed in the URL.
 export function wsUrl(path) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const token = getToken();
-  const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${proto}://${window.location.host}${path}${query}`;
+  return `${proto}://${window.location.host}${path}`;
 }

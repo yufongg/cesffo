@@ -124,6 +124,8 @@ class Course(Base):
     instructor_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     course_name = Column(String(255), nullable=False)
     xp_reward = Column(Integer, default=0, nullable=False)        # XP awarded to a learner on completion
+    price_cents = Column(Integer, default=0, nullable=False)      # 0 means free; money is stored in cents
+    currency = Column(String(3), default="SGD", nullable=False)
 
     content = Column(JSON, nullable=False, default=dict)          # Maps structure JSON block
     tags = Column(JSON, nullable=False, default=list)             # Maps str[] as JSON Array array list
@@ -305,6 +307,8 @@ class PostReport(Base):
     reviewed_at = Column(DateTime, nullable=True)
 
     post = relationship("Post", back_populates="reports")
+    modules = relationship("Module", back_populates="course", cascade="all, delete-orphan", order_by="Module.order_index")
+
 
 # --- COURSE ENROLLMENT MODEL ---
 class CourseEnrollment(Base):
@@ -339,7 +343,7 @@ class Notification(Base):
     is_read = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    
+
 # --- CART MODEL --- 
 class Cart(Base):
     __tablename__ = "carts"

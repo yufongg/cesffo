@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { Navigate } from 'react-router-dom';
-import { apiFetch, getToken } from '../../api/client';
+import { apiFetch, isAuthenticated } from '../../api/client';
 
 const AuthContext = createContext(null);
 
@@ -11,7 +11,7 @@ export function RoleCheck({ children }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!getToken()) {
+        if (!isAuthenticated()) {
             setUser(null);
             setLoading(false);
             return;
@@ -32,10 +32,11 @@ export function RoleCheck({ children }) {
 export const useAuth = () => useContext(AuthContext);
 
 export function ProtectedRoute({ children, adminOnly = false, instructorOnly = false }) {
-    const token = localStorage.getItem('access_token');
+    // These are UI hints only; the backend re-validates the cookie on every
+    // request, so a tampered role just yields 401/403 from the API.
     const role = localStorage.getItem('user_role');
 
-    if (!token) {
+    if (!role) {
         return <Navigate to="/" replace />;
     }
 

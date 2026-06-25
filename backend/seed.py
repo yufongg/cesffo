@@ -23,14 +23,15 @@ XP_PER_LEVEL = 500
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
 
-# Passwords are plaintext here; get_or_create_user hashes them with the same
-# Argon2 hasher the app uses at runtime.
+# Demo-only fixtures: plaintext here, hashed by get_or_create_user with the same
+# Argon2 hasher the app uses at runtime. These are non-production seed accounts;
+# for real environments source these from env vars / a secrets manager instead.
 USERS = [
-    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},
-    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},
-    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},
-    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},
-    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},
+    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},  # nosec B105
+    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},  # nosec B105
+    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},  # nosec B105
+    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},  # nosec B105
+    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},  # nosec B105
 ]
 
 # Categories double as the discussion-forum topic taxonomy (the Category table is shared).
@@ -45,16 +46,16 @@ CATEGORIES = [
 ]
 
 COURSES = [
-    {"name": "Budgeting 101: Take Control of Your Money", "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "Build your first budget, track spending, and put every dollar to work."},
-    {"name": "Building an Emergency Fund",                "level": "Beginner",     "tags": ["Saving", "Budgeting"],            "summary": "Why a safety net matters and a step-by-step plan to build one."},
-    {"name": "Understanding Credit Scores",              "level": "Beginner",     "tags": ["Credit", "Debt"],                 "summary": "What drives your credit score and how to improve it responsibly."},
-    {"name": "Getting Out of Debt",                      "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Compare the snowball and avalanche methods and build a payoff plan."},
-    {"name": "Investing Fundamentals",                   "level": "Beginner",     "tags": ["Investing", "Stocks"],            "summary": "Risk, return, compounding, and how markets actually work."},
-    {"name": "Index Funds & ETFs Explained",            "level": "Intermediate", "tags": ["Investing", "Stocks"],            "summary": "Low-cost, diversified investing for the long term."},
-    {"name": "Retirement Planning Essentials",          "level": "Intermediate", "tags": ["Retirement", "Investing"],        "summary": "Accounts, contributions, and the power of starting early."},
-    {"name": "Taxes Made Simple",                        "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],      "summary": "Understand how income tax works and keep more of what you earn."},
-    {"name": "Intro to Cryptocurrency & Risk",          "level": "Advanced",     "tags": ["Crypto", "Investing"],            "summary": "How crypto works, the real risks, and how to evaluate it soberly."},
-    {"name": "Building Multiple Income Streams",        "level": "Advanced",     "tags": ["Income", "Entrepreneurship"],     "summary": "Side income, freelancing, and turning skills into earnings."},
+    {"name": "Budgeting 101: Take Control of Your Money", "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "Build your first budget, track spending, and put every dollar to work.", "price_cents": 0},
+    {"name": "Building an Emergency Fund",                "level": "Beginner",     "tags": ["Saving", "Budgeting"],            "summary": "Why a safety net matters and a step-by-step plan to build one.", "price_cents": 0},
+    {"name": "Understanding Credit Scores",              "level": "Beginner",     "tags": ["Credit", "Debt"],                 "summary": "What drives your credit score and how to improve it responsibly.", "price_cents": 1299},
+    {"name": "Getting Out of Debt",                      "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Compare the snowball and avalanche methods and build a payoff plan.", "price_cents": 1999},
+    {"name": "Investing Fundamentals",                   "level": "Beginner",     "tags": ["Investing", "Stocks"],            "summary": "Risk, return, compounding, and how markets actually work.", "price_cents": 1599},
+    {"name": "Index Funds & ETFs Explained",            "level": "Intermediate", "tags": ["Investing", "Stocks"],            "summary": "Low-cost, diversified investing for the long term.", "price_cents": 2499},
+    {"name": "Retirement Planning Essentials",          "level": "Intermediate", "tags": ["Retirement", "Investing"],        "summary": "Accounts, contributions, and the power of starting early.", "price_cents": 2999},
+    {"name": "Taxes Made Simple",                        "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],      "summary": "Understand how income tax works and keep more of what you earn.", "price_cents": 999},
+    {"name": "Intro to Cryptocurrency & Risk",          "level": "Advanced",     "tags": ["Crypto", "Investing"],            "summary": "How crypto works, the real risks, and how to evaluate it soberly.", "price_cents": 3499},
+    {"name": "Building Multiple Income Streams",        "level": "Advanced",     "tags": ["Income", "Entrepreneurship"],     "summary": "Side income, freelancing, and turning skills into earnings.", "price_cents": 3999},
 ]
 
 # Which courses each student is enrolled in, with progress (0.0 - 1.0).
@@ -522,16 +523,21 @@ def get_or_create_category(session, spec) -> Category:
 
 def get_or_create_course(session, spec, instructor_id) -> Course:
     xp_reward = XP_BY_LEVEL.get(spec["level"], 500)
+    price_cents = spec.get("price_cents", 0)
     course = session.scalar(select(Course).where(Course.course_name == spec["name"]))
     if course:
         # Backfill XP on courses seeded before the column existed.
         if not getattr(course, "xp_reward", 0):
             course.xp_reward = xp_reward
+        course.price_cents = price_cents
+        course.currency = spec.get("currency", "SGD")
         return course
     course = Course(
         instructor_id=instructor_id,
         course_name=spec["name"],
         xp_reward=xp_reward,
+        price_cents=price_cents,
+        currency=spec.get("currency", "SGD"),
         # Ready for richer content later: text lessons + interactive quizzes.
         content={"summary": spec["summary"], "modules": []},
         tags=spec["tags"],

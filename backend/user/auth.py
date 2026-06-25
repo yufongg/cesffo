@@ -52,6 +52,9 @@ _ph = PasswordHasher()
 # closing the login timing side-channel used for account enumeration.
 _DUMMY_HASH = _ph.hash("timing-equalizer-not-a-real-password")
 
+AUTH_SUCCESS = "Authentication Success"
+AUTH_FAILURE = "Authentication Failed"
+
 # A tiny illustrative blocklist. In production, check against the Have I Been
 # Pwned k-anonymity API (send only the first 5 SHA-1 chars) or a local copy.
 COMMON_PASSWORDS = {

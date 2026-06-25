@@ -22,6 +22,7 @@ from user.admin_router import router as admin_router
 from course.course_router import router as course_router
 from course.instructor_router import router as instructor_router
 from course.learn_router import router as learn_router
+from course.cart_router import router as cart_router
 from forum.forum_router import router as forum_router
 from pathlib import Path
 
@@ -62,6 +63,8 @@ def ensure_schema():
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS xp INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE course ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0',
+        "ALTER TABLE course ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'SGD'",
         # Forum: column added to the pre-existing post table by the merged
         # discussion-forum feature (new forum tables are made by create_all()).
         'ALTER TABLE post ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE',
@@ -160,6 +163,7 @@ app.include_router(admin_router)
 app.include_router(course_router)
 app.include_router(instructor_router)
 app.include_router(learn_router)
+app.include_router(cart_router)
 app.include_router(forum_router)
 
 
