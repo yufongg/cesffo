@@ -37,7 +37,7 @@ async def test_register_function_success(mock_get_db_session):
     mock_get_db_session.return_value.__enter__.side_effect = [mock_session, mock_session, mock_session]
 
     # 2. Act: Execute function
-    token, user_id = await register(
+    token, user_id, role = await register(
         email=  "test@finwise.com",
         username="testuser",
         password="ValidPassword123!",
@@ -47,6 +47,7 @@ async def test_register_function_success(mock_get_db_session):
     # 3. Assert: Verify database interactions and output formats
     assert isinstance(token, str)  #
     assert isinstance(user_id, UUID)
+    assert role == "student"
     mock_session.add.assert_called_once()
     mock_session.commit.assert_called_once()
 
@@ -76,15 +77,21 @@ async def test_login_function_success(mock_get_db_session):
     mock_user = Mock(spec=User)
     mock_user.password = hashed_password
     mock_user.user_id = uuid4()
+    mock_user.role = "student"
+    mock_user.is_active = True
+    mock_user.is_deleted = False
+    mock_user.auth_attempts = 0
+    mock_user.force_password_reset = False
 
     mock_session = Mock()
     mock_session.scalar.return_value = mock_user
     mock_get_db_session.return_value.__enter__.return_value = mock_session
 
-    token, user_id = await login("test@finwise.com", "SecretPassword123!")
+    token, user_id, role = await login("test@finwise.com", "SecretPassword123!")
 
-    assert token == ""
+    assert isinstance(token, str)
     assert isinstance(user_id, UUID)
+    assert role == "student"
 
 
 @pytest.mark.asyncio
