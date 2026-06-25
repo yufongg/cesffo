@@ -15,6 +15,7 @@ services:
       - "5000:5000" # Map port 5000 on the host to port 5000 in the container
     volumes:
       - backend_src:/app:ro
+      - uploads_data:/app/uploads
     environment:
       DB_HOST: db
       DB_NAME: ${POSTGRES_DB} # The name of the database to create
@@ -88,6 +89,7 @@ volumes:
   db_data: # This will create a Docker volume named 'db_data'
   backend_src:
   frontend_src:
+  uploads_data:
 
 networks:
   net:
