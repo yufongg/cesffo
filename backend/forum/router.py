@@ -25,6 +25,7 @@ from .utils import (
     sanitize_content,
     save_attachments,
     thread_to_response,
+    validate_thread_title,
 )
 from .websocket import manager
 
@@ -101,10 +102,7 @@ async def create_thread(
     content: str = Form(...),
     files: Optional[List[UploadFile]] = File(default=None),
 ) -> ThreadResponse:
-    title = title.strip()
-
-    if len(title) < 3:
-        raise HTTPException(status_code=400, detail="Thread title must be at least 3 characters")
+    title = validate_thread_title(title)
 
     with get_db_session() as session:
         category = session.get(Category, category_id)
@@ -162,10 +160,7 @@ async def update_thread(
     thread_id: uuid.UUID,
     request: UpdateThreadRequest,
 ) -> ThreadResponse:
-    title = request.title.strip()
-
-    if len(title) < 3:
-        raise HTTPException(status_code=400, detail="Thread title must be at least 3 characters")
+    title = validate_thread_title(request.title)
 
     with get_db_session() as session:
         thread = session.scalar(

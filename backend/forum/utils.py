@@ -1,59 +1,130 @@
-import html
+import re
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
+import nh3
 from fastapi import HTTPException, UploadFile, status
 
 from model.models import Notification, Post, PostAttachment, Thread, User
 from .schemas import AttachmentResponse, NotificationResponse, PostResponse, ThreadResponse
 
-try:
-    import nh3
-except Exception:  # pragma: no cover - fallback if dependency was not installed yet
-    nh3 = None
-
 UPLOAD_DIR = Path("uploads/forum")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_MIME_PREFIXES = ("image/",)
 MAX_FILE_SIZE = 3 * 1024 * 1024  # 3 MB
+MAX_FILES_PER_POST = 5
+
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": {".jpg", ".jpeg"},
+    "image/png": {".png"},
+    "image/gif": {".gif"},
+    "image/webp": {".webp"},
+}
+
+ALLOWED_TAGS = {
+    "b", "strong", "i", "em", "u",
+    "p", "br", "ul", "ol", "li",
+    "blockquote", "code", "pre", "a",
+}
+
+ALLOWED_ATTRIBUTES = {
+    "a": {"href", "target"},
+    "img": {"src", "alt"},
+}
+
+
+def validate_thread_title(title: str) -> str:
+    title = title.strip()
+
+    if len(title) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Thread title must be at least 3 characters",
+        )
+
+    if len(title) > 255:
+        raise HTTPException(
+            status_code=400,
+            detail="Thread title cannot exceed 255 characters",
+        )
+
+    if not re.search(r"[A-Za-z0-9]", title):
+        raise HTTPException(
+            status_code=400,
+            detail="Thread title must contain letters or numbers",
+        )
+
+    return title
+
+
+def strip_html_for_empty_check(content: str) -> str:
+    return (
+        re.sub(r"<[^>]*>", "", content)
+        .replace("&nbsp;", "")
+        .strip()
+    )
 
 
 def sanitize_content(content: str) -> str:
-    """Allow limited rich-text HTML while reducing stored XSS risk."""
     content = content.strip()
+
     if not content:
         raise HTTPException(status_code=400, detail="Post content cannot be empty")
 
-    allowed_tags = {
-        "b", "strong", "i", "em", "u", "p", "br", "ul", "ol", "li",
-        "blockquote", "code", "pre", "a", "span"
-    }
-    allowed_attributes = {
-        "a": {"href", "title", "target", "rel"},
-        "span": {"class"},
-    }
+    cleaned = nh3.clean(
+        content,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        link_rel="noopener noreferrer",
+    )
 
-    if nh3 is not None:
-        return nh3.clean(content, tags=allowed_tags, attributes=allowed_attributes)
+    if not strip_html_for_empty_check(cleaned):
+        raise HTTPException(status_code=400, detail="Post content cannot be empty")
 
-    # Safe fallback: escape everything if nh3 is unavailable.
-    return html.escape(content)
+    if len(cleaned) > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail="Post content cannot exceed 10000 characters",
+        )
+
+    return cleaned
+
+
+def validate_upload_file(file: UploadFile) -> None:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Invalid image filename")
+
+    suffix = Path(file.filename).suffix.lower()
+    content_type = file.content_type
+
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, GIF, or WEBP images are allowed")
+
+    if suffix not in ALLOWED_IMAGE_TYPES[content_type]:
+        raise HTTPException(status_code=400, detail="Image extension does not match allowed file types")
 
 
 def get_current_user(session, user_id: Optional[str]) -> User:
-    """Temporary auth helper for the forum module until group auth integration is completed."""
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-User-ID header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-User-ID header",
+        )
+
     try:
         parsed_user_id = uuid.UUID(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid X-User-ID header") from exc
 
     user = session.get(User, parsed_user_id)
+
     if not user or user.is_deleted:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user",
+        )
+
     return user
 
 
@@ -83,6 +154,7 @@ def post_to_response(post: Post) -> PostResponse:
 
 def thread_to_response(thread: Thread) -> ThreadResponse:
     top_level_posts = [post for post in thread.posts if post.parent_id is None]
+
     return ThreadResponse(
         thread_id=thread.thread_id.hex,
         category_id=thread.category_id.hex,
@@ -115,25 +187,42 @@ async def save_attachments(session, post: Post, files: Optional[List[UploadFile]
     if not files:
         return
 
+    files = [file for file in files if file and file.filename]
+
+    existing_count = len(post.attachments or [])
+
+    if existing_count + len(files) > MAX_FILES_PER_POST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_FILES_PER_POST} images allowed per post",
+        )
+
+    if len(files) > MAX_FILES_PER_POST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_FILES_PER_POST} images allowed",
+        )
+
     for file in files:
-        if not file.filename:
-            continue
-        if not file.content_type or not file.content_type.startswith(ALLOWED_MIME_PREFIXES):
-            raise HTTPException(status_code=400, detail="Only image uploads are allowed")
+        validate_upload_file(file)
 
         data = await file.read()
+
         if len(data) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail="Image file exceeds 3 MB limit")
 
         suffix = Path(file.filename).suffix.lower()
         safe_file_name = f"{uuid.uuid4().hex}{suffix}"
         target_path = UPLOAD_DIR / safe_file_name
+
         target_path.write_bytes(data)
 
-        session.add(PostAttachment(
-            post_id=post.post_id,
-            file_name=file.filename,
-            file_url=f"/uploads/forum/{safe_file_name}",
-            mime_type=file.content_type,
-            file_size=len(data),
-        ))
+        session.add(
+            PostAttachment(
+                post_id=post.post_id,
+                file_name=Path(file.filename).name,
+                file_url=f"/uploads/forum/{safe_file_name}",
+                mime_type=file.content_type,
+                file_size=len(data),
+            )
+        )

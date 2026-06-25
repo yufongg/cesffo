@@ -181,6 +181,7 @@ function PostList({
               placeholder="Edit the original post for this thread."
               attachmentHelpText="Attach new image(s). Maximum 5 images allowed."
               maxFiles={5}
+              existingFileCount={originalPost.attachments?.length || 0}
               initialContent={editingContent}
             />
           </div>

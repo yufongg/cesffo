@@ -1,12 +1,27 @@
 export const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 export const WS_BASE = API_BASE.replace(/^http/, 'ws');
 
+async function getErrorMessage(response, fallbackMessage = 'Request failed') {
+  const error = await response.json().catch(() => ({}));
+
+  if (typeof error.detail === 'string') {
+    return error.detail;
+  }
+
+  if (Array.isArray(error.detail)) {
+    return error.detail
+      .map((item) => item.msg || item.message || JSON.stringify(item))
+      .join(', ');
+  }
+
+  return fallbackMessage;
+}
+
 export async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Request failed');
+    throw new Error(await getErrorMessage(response));
   }
 
   if (response.status === 204) return null;
@@ -47,8 +62,7 @@ export async function deleteForumThread(threadId) {
   });
 
   if (!response.ok && response.status !== 204) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete thread');
+    throw new Error(await getErrorMessage(response, 'Failed to delete thread'));
   }
 }
 
@@ -82,8 +96,7 @@ export async function deleteForumPost(postId) {
   });
 
   if (!response.ok && response.status !== 204) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete post');
+    throw new Error(await getErrorMessage(response, 'Failed to delete post'));
   }
 }
 
@@ -111,7 +124,6 @@ export async function deletePostAttachment(attachmentId) {
   });
 
   if (!response.ok && response.status !== 204) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to delete attachment');
+    throw new Error(await getErrorMessage(response, 'Failed to delete attachment'));
   }
 }

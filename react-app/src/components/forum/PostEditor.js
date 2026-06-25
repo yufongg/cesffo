@@ -8,6 +8,7 @@ function PostEditor({
   placeholder = 'Write a forum post.',
   attachmentHelpText = 'Upload image files.',
   maxFiles = 5,
+  existingFileCount = 0,
   initialContent = '',
 }) {
   const editorRef = useRef(null);
@@ -21,6 +22,7 @@ function PostEditor({
     underline: false,
     bullet: false,
   });
+  const [fileErrorMessage, setFileErrorMessage] = useState('');
 
   useEffect(() => {
     if (editorRef.current) {
@@ -64,17 +66,27 @@ function PostEditor({
   function clearEditor() {
     if (editorRef.current) editorRef.current.innerHTML = '';
     setFiles([]);
+    setFileErrorMessage('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
-    const content = editorRef.current?.innerHTML || '';
-    const shouldClear = await onSubmit(content, files.slice(0, maxFiles));
+    try {
+      if (existingFileCount + files.length > maxFiles) {
+        setFileErrorMessage(`Maximum ${maxFiles} images allowed.`);
+        return;
+      }
 
-    if (shouldClear !== false) {
-      clearEditor();
+      const content = editorRef.current?.innerHTML || '';
+      const shouldClear = await onSubmit(content, files.slice(0, maxFiles));
+
+      if (shouldClear !== false) {
+        clearEditor();
+      }
+    } catch (error) {
+      setFileErrorMessage(error.message || 'Request failed');
     }
   }
 
@@ -152,6 +164,13 @@ function PostEditor({
         onInput={refreshToolbarState}
       />
 
+      {fileErrorMessage && (
+        <div className="thread-warning">
+          <span>⚠️</span>
+          <span>{fileErrorMessage}</span>
+        </div>
+      )}
+
       <div className="attachment-box">
         <div>
           <strong>Attachments</strong>
@@ -164,7 +183,16 @@ function PostEditor({
           multiple
           accept="image/*"
           onChange={(event) => {
-            const selectedFiles = Array.from(event.target.files).slice(0, maxFiles);
+            const selectedFiles = Array.from(event.target.files);
+
+            if (selectedFiles.length > maxFiles) {
+              setFileErrorMessage(`Maximum ${maxFiles} images allowed.`);
+              event.target.value = '';
+              setFiles([]);
+              return;
+            }
+
+            setFileErrorMessage('');
             setFiles(selectedFiles);
           }}
         />
