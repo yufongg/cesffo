@@ -47,7 +47,8 @@ export default function Home() {
         return;
       }
 
-      localStorage.setItem('access_token', data.access_token);
+      // The session itself is the httpOnly cookie the backend just set; we only
+      // keep role/id as UI hints.
       localStorage.setItem('user_role', data.user_role);
       localStorage.setItem('user_id', data.user_id);
 

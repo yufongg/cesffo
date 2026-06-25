@@ -473,7 +473,7 @@ async def update_notification(
 
 # --- WebSocket (token-authenticated live updates) ---------------------------
 def _authenticate_ws_token(token: Optional[str]) -> bool:
-    """Validate a JWT passed as a query param (browsers can't set WS headers).
+    """Validate the JWT taken from the session cookie on the WS handshake.
     Returns True only for a live access-scope token of an active, non-deleted
     user."""
     if not token:
@@ -498,7 +498,10 @@ def _authenticate_ws_token(token: Optional[str]) -> bool:
 
 @router.websocket("/ws")
 async def forum_websocket(websocket: WebSocket) -> None:
-    token = websocket.query_params.get("token")
+    # The JWT now lives in an httpOnly cookie, which the browser sends on the
+    # same-origin WS handshake — so read it from there instead of a query param
+    # (that also keeps the token out of URLs / server logs).
+    token = websocket.cookies.get("access_token")
     if not _authenticate_ws_token(token):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

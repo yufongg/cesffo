@@ -10,6 +10,8 @@ ENV/
 env.bak/
 venv.bak/
 
+
+
 # Keys, certs, and credential dumps — never commit these
 *.pem
 *.key
@@ -24,6 +26,7 @@ id_ed25519.*
 *credentials*.json
 *secrets*.json
 *.kdbx
+backend/seed.py
 
 # Local Postgres data if ever bind-mounted instead of a named volume
 postgres-data/

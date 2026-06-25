@@ -24,12 +24,13 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+
 RESET_TOKEN_EXPIRE_MINUTES = 10
 MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
-SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105 - token scope label, not a password
+SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -51,6 +52,9 @@ _ph = PasswordHasher()
 # is not found so that "user missing" and "wrong password" take the same time,
 # closing the login timing side-channel used for account enumeration.
 _DUMMY_HASH = _ph.hash("timing-equalizer-not-a-real-password")
+
+AUTH_SUCCESS = "Authentication Success"
+AUTH_FAILURE = "Authentication Failed"
 
 # A tiny illustrative blocklist. In production, check against the Have I Been
 # Pwned k-anonymity API (send only the first 5 SHA-1 chars) or a local copy.
@@ -115,8 +119,8 @@ def parse_user_id(raw: str) -> UUID:
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
     
-    #! Password strength is using the NEW NIST as defined in slides.
-    #! IIRC it is at least 8 char, no need for special char and or digits. but need to check against common dictionary passwords
+    # NIST SP 800-63B style: enforce length and block known-bad / predictable
+    # passwords rather than requiring character-class composition rules.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
@@ -175,11 +179,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
 
         hashed_password = hash_password(password)
 
-        #^ ONLY if the email and usernames are unique will the new account be created using hte ORM.
         try:
-
-            #^ This creates a new user object. Because this object is NEWLY created and does not exists in ,
-            #^ when the .commit method is called, the database will know its an insert
             user = User(
                 email=email,
                 username=username,
@@ -188,8 +188,6 @@ async def register(email: EmailStr, username: str, password: str, password_confi
             )
             session.add(user)
             session.commit()
-
-            #^ I think this just flushes
             session.refresh(user)
 
             token = create_access_token(user.user_id.hex, user.role)
@@ -208,7 +206,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            except Exception:  # nosec B110 - intentionally equalizes missing-user timing
+            except Exception:  # nosec B110
                 pass
             raise UserNotFoundError()
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 
 from core.rate_limit import limiter
+from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
@@ -14,13 +15,21 @@ from .auth import (
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
-    SCOPE_PASSWORD_RESET,
+    SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
+
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# A forced-reset token is a short-lived bearer token the client holds in memory
+# and sends in the Authorization header, NOT a session cookie. So the reset flow
+# keeps a header-based scheme while normal sessions use the httpOnly cookie one.
+reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
+
+class LoginResponse(BaseModel):
+    user_role: str
+    user_id: str
 
 # --- JWT dependency ---
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
@@ -61,7 +70,7 @@ async def require_instructor(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
-async def get_reset_subject(token: str = Depends(oauth2_scheme)) -> str:
+async def get_reset_subject(token: str = Depends(reset_scheme)) -> str:
 
     try:
         payload = decode_access_token(token)
@@ -91,10 +100,7 @@ class UserLoginSchema(BaseModel):
     password: str
 
 class AuthResponseSchema(ResponseModel):
-    access_token: str
-    user_id: str
-    user_role: str
-    token_type: str = "bearer"
+    detail: str
 
 class UserProfileResponse(BaseModel):
     username: str
@@ -107,9 +113,9 @@ class ChangePasswordSchema(BaseModel):
 
 
 # --- Endpoints ---
-@router.post("/register", response_model=AuthResponseSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")  # throttle automated account creation / spam signups
-async def register_user(request: Request, req: UserRegistrationSchema):
+async def register_user(request: Request, req: UserRegistrationSchema, response: Response):
     try:
         access_token, user_id, role = await register(
             req.email, req.username, req.password, req.password_confirm
@@ -123,22 +129,26 @@ async def register_user(request: Request, req: UserRegistrationSchema):
     except DatabaseError:
         raise HTTPException(status_code=500, detail="Registration failed due to a server error")
 
-    return AuthResponseSchema(access_token=access_token, user_id=user_id.hex, user_role=role)
+    # Registration auto-logs the user in: drop the session cookie and hand back
+    # the (non-sensitive) role/id the SPA uses to render the right view.
+    set_auth_cookie(response, access_token)
+    return LoginResponse(user_role=role, user_id=user_id.hex)
 
 
-@router.post("/login", response_model=AuthResponseSchema)
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit("10/minute")  # blunt brute-force / credential-stuffing per IP (lockout guards per-account)
-async def login_user(request: Request, req: UserLoginSchema):
+async def login_user(request: Request, req: UserLoginSchema, response: Response):
     try:
         access_token, user_id, role = await login(req.email, req.password)
     except PasswordResetRequiredError as e:
 
+        # Response labels/flags below are not credentials (bandit B105).
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "force_password_reset": True,  # nosec B105 - response flag, not a password
+                "force_password_reset": True,  # nosec B105
                 "reset_token": e.reset_token,
-                "token_type": "reset",  # nosec B105 - token type label, not a password
+                "token_type": "reset",  # nosec B105
             },
         )
     except AccountLockedError:
@@ -153,8 +163,16 @@ async def login_user(request: Request, req: UserLoginSchema):
         # Generic message — do not reveal whether email exists
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    return AuthResponseSchema(access_token=access_token, user_id=user_id.hex, user_role=role)
+    set_auth_cookie(response, access_token)
+    return LoginResponse(user_role=role, user_id=user_id.hex)
 
+
+@router.post("/logout", response_model=AuthResponseSchema)
+async def logout(response: Response):
+    # Only the server can clear an httpOnly cookie; match the set attributes so
+    # the browser actually drops it.
+    clear_auth_cookie(response)
+    return AuthResponseSchema(detail = AUTH_SUCCESS)
 
 @router.get("/getProfile", response_model=UserProfileResponse)
 async def get_profile(request: Request, current_user: dict = Depends(get_current_user)):
@@ -171,11 +189,12 @@ async def get_profile(request: Request, current_user: dict = Depends(get_current
         return UserProfileResponse(username=user.username, email=user.email, role=user.role)
 
 
-@router.post("/change-password", response_model=AuthResponseSchema)
+@router.post("/change-password", response_model=LoginResponse)
 @limiter.limit("5/minute")  # limit reset-token replay / password-churn attempts
 async def change_password_route(
     request: Request,
     req: ChangePasswordSchema,
+    response: Response,
     sub: str = Depends(get_reset_subject),
 ):
 
@@ -195,4 +214,6 @@ async def change_password_route(
     except UserNotFoundError:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return AuthResponseSchema(access_token=access_token, user_id=user_id.hex, user_role=role)
+    # A successful reset establishes a real session, so issue the cookie now.
+    set_auth_cookie(response, access_token)
+    return LoginResponse(user_role=role, user_id=user_id.hex)

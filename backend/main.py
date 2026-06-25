@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Request, status #, HTTPException, Body, Form, Depends,
 from fastapi.concurrency import asynccontextmanager
 from fastapi.responses import JSONResponse #, RedirectResponse, Response
@@ -13,10 +15,7 @@ import uvicorn
 from sqlalchemy import text
 
 from db.db import engine, Base, get_db_session
-import model.models  
-
-
-#! IMPORT YOUR ROUTERS HERE
+import model.models
 
 from user.auth_router import router as auth_router
 from user.admin_router import router as admin_router
@@ -26,17 +25,29 @@ from course.learn_router import router as learn_router
 from course.cart_router import router as cart_router
 from forum.forum_router import router as forum_router
 from pathlib import Path
-# Generates all tables defined via 'Base' if they don't already exist in Postgres
 
-cors_origins = [
+# Runtime environment ("production" enables the hardening below).
+APP_ENV = os.getenv("APP_ENV", "development")
+IS_PRODUCTION = APP_ENV == "production"
+
+# Browser origins allowed to call the API. Set CORS_ALLOWED_ORIGINS as a
+# comma-separated list in production (e.g. "https://app.example.com"); falls back
+# to local dev origins when unset. Never use "*" here — credentials are enabled.
+_DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://react_frontend",
 ]
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+] or _DEV_ORIGINS
 
 
 def ensure_schema():
-    #! I added this incase to prevent model mismatch, this will only run on my branch.
+    # Idempotent column adds so existing tables match the current models
+    # (create_all() only creates missing tables, not missing columns).
     migrations = [
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE',
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT FALSE',
@@ -62,10 +73,15 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_schema()  # bring existing tables up to date with the current models
     yield
-    # Clean up
-    # close_database_connection()
 
-app = FastAPI(lifespan=lifespan)
+# Interactive API docs leak the full endpoint/schema surface, so turn them off
+# in production. They stay on in development for convenience.
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

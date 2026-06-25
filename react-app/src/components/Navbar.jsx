@@ -1,20 +1,22 @@
 import React from 'react';
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
+import { logout } from '../api/client';
 
 export default function Navbar() {
   // useLocation causes a re-render on every route change,
   // ensuring localStorage is re-read after login/logout navigation.
   useLocation();
 
-  const token = localStorage.getItem('access_token');
+  // The session is the httpOnly cookie (not readable here); `user_role` is the
+  // UI hint we set at login, so use it to decide the logged-in nav.
   const role = localStorage.getItem('user_role');
+  const isLoggedIn = Boolean(role);
   const navigate = useNavigate();
 
-  function handleLogout() {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_id');
+  async function handleLogout() {
+    // Server clears the httpOnly cookie; helper also drops the local hints.
+    await logout();
     navigate('/');
   }
 
@@ -30,7 +32,7 @@ export default function Navbar() {
         </Link>
 
         <nav className="navbar__links" aria-label="Primary">
-          {!token ? (
+          {!isLoggedIn ? (
             <>
               <NavLink to="/" end className={navClass}>Login</NavLink>
               <Link to="/register" className="btn btn--primary btn--sm">Get started</Link>

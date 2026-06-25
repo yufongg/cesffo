@@ -23,17 +23,18 @@ XP_PER_LEVEL = 500
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
 
-#! The password is plaintext but i import the same hasher. So it should workthe same
+# Demo-only fixtures: plaintext here, hashed by get_or_create_user with the same
+# Argon2 hasher the app uses at runtime. These are non-production seed accounts;
+# for real environments source these from env vars / a secrets manager instead.
 USERS = [
-    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},  # nosec B105 - seeded demo login
-    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},  # nosec B105 - seeded demo login
-    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},  # nosec B105 - seeded demo login
-    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},  # nosec B105 - seeded demo login
-    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},  # nosec B105 - seeded demo login
+    {"key": "admin",      "email": "admin@cesffo.io",      "username": "admin_kai",    "role": "admin",      "password": "CesffoAdmin#2026"},  # nosec B105
+    {"key": "instructor", "email": "instructor@cesffo.io", "username": "prof_lena",    "role": "instructor", "password": "TeachWell#2026"},  # nosec B105
+    {"key": "demo",       "email": "student@cesffo.io",    "username": "demo_student", "role": "student",    "password": "LearnMoney#2026"},  # nosec B105
+    {"key": "alex",       "email": "alex@cesffo.io",       "username": "alex_tan",     "role": "student",    "password": "SaverGoals2026"},  # nosec B105
+    {"key": "maria",      "email": "maria@cesffo.io",      "username": "maria_lim",    "role": "student",    "password": "BudgetWins2026"},  # nosec B105
 ]
 
-#! Categories double as the discussion-forum topic taxonomy (the Category table
-#! is shared). Jon can change this if needed.
+# Categories double as the discussion-forum topic taxonomy (the Category table is shared).
 CATEGORIES = [
     {"name": "Budgeting", "slug": "budgeting", "description": "Ask questions about budgeting and managing expenses.", "display_order": 1},
     {"name": "Saving", "slug": "saving", "description": "Discuss savings habits, emergency funds, and saving goals.", "display_order": 2},
@@ -44,7 +45,6 @@ CATEGORIES = [
     {"name": "Course Help", "slug": "course-help", "description": "Get help with course materials and platform usage.", "display_order": 7},
 ]
 
-#! If required Jon can change this info, table and columns.
 COURSES = [
     {"name": "Budgeting 101: Take Control of Your Money", "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "Build your first budget, track spending, and put every dollar to work.", "price_cents": 0},
     {"name": "Building an Emergency Fund",                "level": "Beginner",     "tags": ["Saving", "Budgeting"],            "summary": "Why a safety net matters and a step-by-step plan to build one.", "price_cents": 0},
