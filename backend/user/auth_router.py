@@ -7,6 +7,8 @@ from sqlalchemy import select
 
 from core.rate_limit import limiter
 from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
+from common.audit import log_action
+from common.security import client_ip as _client_ip
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
@@ -91,7 +93,7 @@ class UserRegistrationSchema(BaseModel):
         ...,
         min_length=MIN_PASSWORD_LENGTH,
         max_length=128,
-        description="Min length 12, with upper/lower/digit/special. Full policy enforced server-side.",
+        description="Min 10 chars with an uppercase, lowercase, number and special character. Full policy enforced server-side.",
     )
     password_confirm: str
 
@@ -135,13 +137,30 @@ async def register_user(request: Request, req: UserRegistrationSchema, response:
     return LoginResponse(user_role=role, user_id=user_id.hex)
 
 
+def _record_login_attempt(*, user_id, outcome, ip, reason=None):
+    """SR-11: persist a login attempt to the append-only audit log in its own
+    transaction so the record survives even when the request ultimately errors.
+    The attempted email is deliberately NOT logged (avoids PII in logs / account
+    enumeration); failures with no resolved account are recorded with a null user.
+    """
+    details = {"reason": reason} if reason else None
+    with get_db_session() as session:
+        log_action(
+            session, user_id=user_id, action="login",
+            outcome=outcome, ip_address=ip, details=details,
+        )
+
+
 @router.post("/login", response_model=LoginResponse)
 @limiter.limit("10/minute")  # blunt brute-force / credential-stuffing per IP (lockout guards per-account)
 async def login_user(request: Request, req: UserLoginSchema, response: Response):
+    ip = _client_ip(request)
     try:
         access_token, user_id, role = await login(req.email, req.password)
     except PasswordResetRequiredError as e:
-
+        # Credentials were correct but a forced reset is pending — the auth itself
+        # succeeded, so record it as a success (uid is not exposed on this path).
+        _record_login_attempt(user_id=None, outcome="success", ip=ip, reason="reset_required")
         # Response labels/flags below are not credentials (bandit B105).
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -152,17 +171,21 @@ async def login_user(request: Request, req: UserLoginSchema, response: Response)
             },
         )
     except AccountLockedError:
+        _record_login_attempt(user_id=None, outcome="failure", ip=ip, reason="account_locked")
         raise HTTPException(
             status_code=423,
             detail="Account locked after too many failed attempts. Contact support to unlock.",
         )
     except InactiveAccountError:
+        _record_login_attempt(user_id=None, outcome="failure", ip=ip, reason="inactive_account")
         # Banned/deleted accounts: do not hint that the credentials were correct.
         raise HTTPException(status_code=403, detail="This account is not allowed to sign in")
     except (UserNotFoundError, PasswordsMismatchError):
+        _record_login_attempt(user_id=None, outcome="failure", ip=ip, reason="bad_credentials")
         # Generic message — do not reveal whether email exists
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
+    _record_login_attempt(user_id=user_id, outcome="success", ip=ip)
     set_auth_cookie(response, access_token)
     return LoginResponse(user_role=role, user_id=user_id.hex)
 

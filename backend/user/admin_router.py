@@ -6,7 +6,9 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 
 from core.rate_limit import limiter
-from common.security import to_uuid
+from common.audit import log_action
+from common.security import to_uuid, parse_uid as _parse_uid, client_ip as _client_ip
+from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import User
 from .auth import (
@@ -121,13 +123,15 @@ async def create_user(request: Request, req: CreateUserRequest, admin: dict = De
     hashed = hash_password(temp_password)
 
     with get_db_session() as session:
-        if session.scalar(select(User).where(User.email == email)):
+        # email is encrypted at rest, so search by its blind index, not the value.
+        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
             raise HTTPException(status_code=409, detail="A user with that email already exists")
         if session.scalar(select(User).where(User.username == username)):
             raise HTTPException(status_code=409, detail="A user with that username already exists")
 
         user = User(
             email=email,
+            email_bidx=blind_index(email),
             username=username,
             password=hashed,
             role=role,
@@ -156,6 +160,12 @@ async def assign_role(request: Request, user_id: str, req: AssignRoleRequest, ad
                 raise HTTPException(status_code=409, detail="Cannot demote the last remaining admin")
 
         user.role = role
+        # SR-11: role assignments are a security-relevant event.
+        log_action(
+            session, user_id=_parse_uid(admin), action="assign_role",
+            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
+            details={"new_role": role},
+        )
         session.commit()
         session.refresh(user)
         return _to_view(user)
@@ -180,6 +190,13 @@ async def set_status(request: Request, user_id: str, req: SetStatusRequest, admi
         user.is_active = req.is_active
         if req.is_active:
             user.auth_attempts = 0  # unlock on (re)activation
+        # SR-11: account suspension/reactivation is a security-relevant event.
+        log_action(
+            session, user_id=_parse_uid(admin),
+            action="suspend_account" if not req.is_active else "reactivate_account",
+            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
+            details={"is_active": req.is_active},
+        )
         session.commit()
         session.refresh(user)
         return _to_view(user)

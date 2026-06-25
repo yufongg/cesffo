@@ -1,6 +1,7 @@
 import os
 import secrets
-from argon2 import PasswordHasher, exceptions
+import string
+from argon2 import PasswordHasher, Type, exceptions
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from jose import jwt
@@ -11,6 +12,7 @@ from uuid import UUID
 
 from core import account_lockout
 
+from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import User
 
@@ -38,15 +40,30 @@ ROLE_INSTRUCTOR = "instructor"
 ROLE_ADMIN = "admin"
 ALLOWED_ROLES = frozenset({ROLE_STUDENT, ROLE_INSTRUCTOR, ROLE_ADMIN})
 
-# --- Password policy (NIST SP 800-63B aligned: length first, block known-bad) ---
-MIN_PASSWORD_LENGTH = 8
-# NIST 800-63B says verifiers SHALL allow at least 64 chars. We cap at 128 to
-# bound Argon2 work (DoS guard) while still permitting passphrases. This MUST
-# match the router schema's max_length.
+# --- Password policy (SR-01) ---
+# SR-01 mandates >= 10 chars AND at least one uppercase, one lowercase, one digit
+# and one special character. We ALSO keep the known-bad blocklist and the
+# username/email-substring checks below as defence-in-depth (a strict superset of
+# SR-01).
+MIN_PASSWORD_LENGTH = 10
+# Cap at 128 to bound Argon2 work (DoS guard) while still permitting passphrases.
+# This MUST match the router schema's max_length.
 MAX_PASSWORD_LENGTH = 128
+# Characters accepted as "special" for the SR-01 complexity check. Kept broad so
+# password managers and generated temp passwords can satisfy the rule.
+SPECIAL_CHARS = "!@#$%^&*()-_=+[]{};:,.<>?/|~`\"'\\"
 
-# Single shared hasher instance (thread-safe).
-_ph = PasswordHasher()
+# Single shared hasher instance (thread-safe). Parameters are pinned explicitly to
+# satisfy SR-02 (Argon2id, 64 MiB memory, 3 iterations, parallelism 4) instead of
+# relying on argon2-cffi's library defaults, which can change between versions.
+_ph = PasswordHasher(
+    time_cost=3,          # iterations (SR-02: >= 3)
+    memory_cost=65536,    # 64 MiB expressed in KiB (SR-02: >= 64MB)
+    parallelism=4,        # lanes (SR-02: 4)
+    hash_len=32,
+    salt_len=16,
+    type=Type.ID,         # Argon2id (SR-02)
+)
 
 # Precomputed hash of a throwaway value. We verify against this when an email
 # is not found so that "user missing" and "wrong password" take the same time,
@@ -105,11 +122,20 @@ def hash_password(password: str) -> str:
 
 
 def generate_temp_password(length: int = 16) -> str:
-    """Generate a cryptographically strong temporary password.
+    """Generate a cryptographically strong temporary password that satisfies the
+    SR-01 policy (length + all four character classes).
 
-    Uses secrets (CSPRNG). URL-safe alphabet avoids ambiguous shell/HTML chars.
+    Uses secrets (CSPRNG) and guarantees at least one uppercase, lowercase, digit
+    and special character so the value always passes validate_password_strength().
     """
-    return secrets.token_urlsafe(length)
+    length = max(length, MIN_PASSWORD_LENGTH)
+    pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS)
+    # One guaranteed character from each required class, then fill from the union.
+    chars = [secrets.choice(pool) for pool in pools]
+    alphabet = "".join(pools)
+    chars += [secrets.choice(alphabet) for _ in range(length - len(chars))]
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 def parse_user_id(raw: str) -> UUID:
@@ -118,13 +144,21 @@ def parse_user_id(raw: str) -> UUID:
 
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-    
-    # NIST SP 800-63B style: enforce length and block known-bad / predictable
-    # passwords rather than requiring character-class composition rules.
+
+    # SR-01: enforce length and character-class composition, then apply the
+    # defence-in-depth blocklist / identity-substring checks.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Max allowed password length is {MAX_PASSWORD_LENGTH} characters long")
+    if not any(c.isupper() for c in password):
+        raise PasswordPolicyError("Password must include at least one uppercase letter")
+    if not any(c.islower() for c in password):
+        raise PasswordPolicyError("Password must include at least one lowercase letter")
+    if not any(c.isdigit() for c in password):
+        raise PasswordPolicyError("Password must include at least one number")
+    if not any(c in SPECIAL_CHARS for c in password):
+        raise PasswordPolicyError("Password must include at least one special character")
     if password.lower() in COMMON_PASSWORDS:
         raise PasswordPolicyError("Password is too common; please choose a less predictable one")
     
@@ -171,7 +205,8 @@ async def register(email: EmailStr, username: str, password: str, password_confi
     validate_password_strength(password, username=username, email=email)
 
     with get_db_session() as session:
-        if session.scalar(select(User).where(User.email == email)):
+        # email is encrypted at rest, so search by its blind index, not the value.
+        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
             raise ExistingUserError("email")
 
         if session.scalar(select(User).where(User.username == username)):
@@ -182,6 +217,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
         try:
             user = User(
                 email=email,
+                email_bidx=blind_index(email),
                 username=username,
                 password=hashed_password,
                 role=ROLE_STUDENT,  # self-service signup can NEVER pick its own role (privilege-escalation guard)
@@ -199,7 +235,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
 async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
     email = email.strip().lower()
     with get_db_session() as session:
-        existing_user = session.scalar(select(User).where(User.email == email))
+        existing_user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
 
         # Argon2 verify against a dummy hash so the response time matches the
         # "wrong password" path, then fail with the same generic error.
