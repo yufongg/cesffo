@@ -16,6 +16,10 @@ from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import User
 
+# Username policy mirrors the registration schema (router-level Field bounds).
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 150
+
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 if not SECRET_KEY:
@@ -283,6 +287,58 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
 
     token = create_access_token(uid.hex, role)
     return token, uid, role
+
+
+async def update_profile(
+    user_id: UUID, *, username: str | None = None, email: EmailStr | None = None
+) -> Tuple[str, EmailStr, str]:
+    """Update the username and/or email for the logged-in user.
+
+    Returns the resulting (username, email, role) after the change. Enforces the
+    same normalization and uniqueness rules as registration: email is lowercased
+    and looked up / deduplicated via its blind index (it is encrypted at rest),
+    username is trimmed and length-checked. Raises ExistingUserError on a clash
+    and UserNotFoundError if the account no longer exists.
+    """
+    if username is not None:
+        username = username.strip()
+        if not (USERNAME_MIN_LENGTH <= len(username) <= USERNAME_MAX_LENGTH):
+            raise PasswordPolicyError(
+                f"Username must be between {USERNAME_MIN_LENGTH} and {USERNAME_MAX_LENGTH} characters"
+            )
+    if email is not None:
+        email = email.strip().lower()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        if username is not None and username != user.username:
+            clash = session.scalar(
+                select(User).where(User.username == username, User.user_id != user_id)
+            )
+            if clash:
+                raise ExistingUserError("username")
+            user.username = username
+
+        if email is not None and email != user.email:
+            new_bidx = blind_index(email)
+            clash = session.scalar(
+                select(User).where(User.email_bidx == new_bidx, User.user_id != user_id)
+            )
+            if clash:
+                raise ExistingUserError("email")
+            user.email = email
+            user.email_bidx = new_bidx
+
+        try:
+            session.commit()
+            session.refresh(user)
+        except Exception:
+            raise DatabaseError()
+
+        return user.username, user.email, user.role
 
 
 async def change_password(

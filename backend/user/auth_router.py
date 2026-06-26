@@ -13,11 +13,11 @@ from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
-    register, login, change_password, decode_access_token, parse_user_id,
+    register, login, change_password, update_profile, decode_access_token, parse_user_id,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
-    SCOPE_PASSWORD_RESET, AUTH_SUCCESS
+    USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
 
 
@@ -112,6 +112,14 @@ class UserProfileResponse(BaseModel):
 class ChangePasswordSchema(BaseModel):
     new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
     new_password_confirm: str
+
+
+class UpdateProfileSchema(BaseModel):
+    # Both optional (change either or both); the "at least one" rule is enforced in the route.
+    username: str | None = Field(
+        default=None, min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH
+    )
+    email: EmailStr | None = None
 
 
 # --- Endpoints ---
@@ -210,6 +218,37 @@ async def get_profile(request: Request, current_user: dict = Depends(get_current
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return UserProfileResponse(username=user.username, email=user.email, role=user.role)
+
+
+@router.patch("/profile", response_model=UserProfileResponse)
+@limiter.limit("10/minute")  # limit profile churn / username-enumeration probing
+async def update_profile_route(
+    request: Request,
+    req: UpdateProfileSchema,
+    current_user: dict = Depends(get_current_user),
+):
+    if req.username is None and req.email is None:
+        raise HTTPException(status_code=400, detail="Provide a username and/or email to update")
+
+    try:
+        uid = parse_user_id(current_user["user_id"])
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+
+    try:
+        username, email, role = await update_profile(
+            uid, username=req.username, email=req.email
+        )
+    except PasswordPolicyError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except ExistingUserError as e:
+        raise HTTPException(status_code=409, detail=f"There is an existing user with the same {e.field_taken}")
+    except UserNotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
+    except DatabaseError:
+        raise HTTPException(status_code=500, detail="Profile update failed due to a server error")
+
+    return UserProfileResponse(username=username, email=email, role=role)
 
 
 @router.post("/change-password", response_model=LoginResponse)
