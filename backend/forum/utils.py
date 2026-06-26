@@ -7,6 +7,10 @@ import nh3
 from fastapi import HTTPException, UploadFile, status
 
 from model.models import Notification, Post, PostAttachment, Thread, User
+<<<<<<< Updated upstream
+=======
+from common.sanitize import sanitize_html
+>>>>>>> Stashed changes
 from .schemas import AttachmentResponse, NotificationResponse, PostResponse, ThreadResponse
 
 UPLOAD_DIR = Path("uploads/forum")
@@ -65,12 +69,35 @@ def strip_html_for_empty_check(content: str) -> str:
         .strip()
     )
 
+def get_creator_name(session, creator_id) -> Optional[str]:
+    if not creator_id:
+        return None
+
+    user = session.get(User, creator_id)
+    return user.username if user else None
+
+def validate_thread_title(title: str) -> str:
+    """Validate and normalize forum thread titles before storing."""
+    title = (title or "").strip()
+
+    if len(title) < 3:
+        raise HTTPException(status_code=400, detail="Thread title must be at least 3 characters")
+
+    if len(title) > 255:
+        raise HTTPException(status_code=400, detail="Thread title cannot exceed 255 characters")
+
+    if not re.search(r"[A-Za-z0-9]", title):
+        raise HTTPException(status_code=400, detail="Thread title must contain letters or numbers")
+
+    return title
+
 
 def sanitize_content(content: str) -> str:
     content = content.strip()
 
     if not content:
         raise HTTPException(status_code=400, detail="Post content cannot be empty")
+<<<<<<< Updated upstream
 
     cleaned = nh3.clean(
         content,
@@ -88,6 +115,16 @@ def sanitize_content(content: str) -> str:
             detail="Post content cannot exceed 10000 characters",
         )
 
+=======
+    cleaned = sanitize_html(content)
+    # nh3 can legitimately reduce a markup-only payload (e.g. "<script>..</script>")
+    # to nothing — treat that as empty rather than storing a blank post.
+    plain_text = re.sub(r"<[^>]*>", "", cleaned).replace("&nbsp;", "").strip()
+    if not plain_text:
+        raise HTTPException(status_code=400, detail="Post content cannot be empty")
+    if len(cleaned) > 10000:
+        raise HTTPException(status_code=400, detail="Post content cannot exceed 10000 characters")
+>>>>>>> Stashed changes
     return cleaned
 
 
@@ -139,11 +176,12 @@ def attachment_to_response(attachment: PostAttachment) -> AttachmentResponse:
     )
 
 
-def post_to_response(post: Post) -> PostResponse:
+def post_to_response(post: Post, session=None) -> PostResponse:
     return PostResponse(
         post_id=post.post_id.hex,
         thread_id=post.thread_id.hex,
         creator_id=post.creator_id.hex if post.creator_id else None,
+        creator_name=get_creator_name(session, post.creator_id) if session else None,
         content=post.content,
         is_edited=post.is_edited,
         created_at=post.created_at,
@@ -152,13 +190,14 @@ def post_to_response(post: Post) -> PostResponse:
     )
 
 
-def thread_to_response(thread: Thread) -> ThreadResponse:
+def thread_to_response(thread: Thread, session=None) -> ThreadResponse:
     top_level_posts = [post for post in thread.posts if post.parent_id is None]
 
     return ThreadResponse(
         thread_id=thread.thread_id.hex,
         category_id=thread.category_id.hex,
         creator_id=thread.creator_id.hex if thread.creator_id else None,
+        creator_name=get_creator_name(session, thread.creator_id) if session else None,
         title=thread.title,
         slug=thread.slug,
         view_count=thread.view_count,
@@ -187,6 +226,7 @@ async def save_attachments(session, post: Post, files: Optional[List[UploadFile]
     if not files:
         return
 
+<<<<<<< Updated upstream
     files = [file for file in files if file and file.filename]
 
     existing_count = len(post.attachments or [])
@@ -195,6 +235,15 @@ async def save_attachments(session, post: Post, files: Optional[List[UploadFile]
         raise HTTPException(
             status_code=400,
             detail=f"Maximum {MAX_FILES_PER_POST} images allowed per post",
+=======
+    real_files = [f for f in files if f and f.filename]
+    if not real_files:
+        return
+    existing_count = len(post.attachments or [])
+    if existing_count + len(real_files) > MAX_FILES_PER_POST:
+        raise HTTPException(
+            status_code=400, detail=f"Maximum {MAX_FILES_PER_POST} images allowed per post"
+>>>>>>> Stashed changes
         )
 
     if len(files) > MAX_FILES_PER_POST:

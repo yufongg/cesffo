@@ -66,7 +66,7 @@ async def list_categories() -> List[CategoryResponse]:
                 display_order=category.display_order,
                 created_at=category.created_at,
                 threads=[
-                    thread_to_response(thread)
+                    thread_to_response(thread, session)
                     for thread in sorted(
                         category.threads,
                         key=lambda item: item.updated_at or item.created_at,
@@ -92,7 +92,7 @@ async def list_thread_posts(thread_id: uuid.UUID) -> List[PostResponse]:
             .order_by(Post.created_at.asc())
         ).all()
 
-        return [post_to_response(post) for post in posts]
+        return [post_to_response(post, session) for post in posts]
 
 
 @router.post("/categories/{category_id}/threads", response_model=ThreadResponse, status_code=status.HTTP_201_CREATED)
@@ -102,6 +102,10 @@ async def create_thread(
     content: str = Form(...),
     files: Optional[List[UploadFile]] = File(default=None),
 ) -> ThreadResponse:
+<<<<<<< Updated upstream:backend/forum/router.py
+=======
+    uid = _parse_uid(current_user)
+>>>>>>> Stashed changes:backend/forum/forum_router.py
     title = validate_thread_title(title)
 
     with get_db_session() as session:
@@ -145,7 +149,7 @@ async def create_thread(
         session.add(original_post)
         session.flush()
 
-        response = thread_to_response(thread)
+        response = thread_to_response(thread, session)
 
     await manager.broadcast({
         "event": "thread_created",
@@ -192,8 +196,8 @@ async def update_thread(
         session.add(original_post)
         session.flush()
 
-        response = thread_to_response(thread)
-        post_response = post_to_response(original_post)
+        response = thread_to_response(thread, session)
+        post_response = post_to_response(original_post, session)
 
     await manager.broadcast({
         "event": "thread_updated",
@@ -233,6 +237,12 @@ async def create_post(
     content: str = Form(...),
     files: Optional[List[UploadFile]] = File(default=None),
 ) -> PostResponse:
+<<<<<<< Updated upstream:backend/forum/router.py
+=======
+    uid = _parse_uid(current_user)
+    notification_response = None
+
+>>>>>>> Stashed changes:backend/forum/forum_router.py
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
 
@@ -261,7 +271,20 @@ async def create_post(
         session.add(thread)
         session.flush()
 
-        response = post_to_response(post)
+        response = post_to_response(post, session)
+
+        if thread.creator_id and thread.creator_id != uid:
+            notification = Notification(
+                recipient_id=thread.creator_id,
+                actor_id=uid,
+                thread_id=thread.thread_id,
+                post_id=post.post_id,
+                notification_type="thread_reply",
+                message=f"{current_user.get('username', 'Someone')} replied to your thread: {thread.title}",
+            )
+            session.add(notification)
+            session.flush()
+            notification_response = notification_to_response(notification)
 
     await manager.broadcast({
         "event": "post_created",
@@ -269,6 +292,16 @@ async def create_post(
         "post": response.model_dump(mode="json"),
     })
 
+<<<<<<< Updated upstream:backend/forum/router.py
+=======
+    if notification_response:
+        await manager.broadcast({
+            "event": "notification_created",
+            "recipient_id": notification_response.recipient_id,
+            "notification": notification_response.model_dump(mode="json"),
+        })
+
+>>>>>>> Stashed changes:backend/forum/forum_router.py
     return response
 
 
@@ -294,7 +327,7 @@ async def update_post(
         session.add(post)
         session.flush()
 
-        response = post_to_response(post)
+        response = post_to_response(post, session)
 
     await manager.broadcast({
         "event": "post_updated",
@@ -325,6 +358,7 @@ async def add_post_attachments(
         post.updated_at = datetime.now(timezone.utc)
         session.add(post)
         session.flush()
+<<<<<<< Updated upstream:backend/forum/router.py
 
         updated_post = session.scalar(
             select(Post)
@@ -333,6 +367,10 @@ async def add_post_attachments(
         )
 
         response = post_to_response(updated_post)
+=======
+        session.refresh(post)
+        response = post_to_response(post, session)
+>>>>>>> Stashed changes:backend/forum/forum_router.py
 
     await manager.broadcast({
         "event": "post_updated",
@@ -368,8 +406,12 @@ async def delete_post_attachment(attachment_id: uuid.UUID) -> None:
             .where(Post.post_id == post_id)
             .options(selectinload(Post.attachments))
         )
+<<<<<<< Updated upstream:backend/forum/router.py
 
         response = post_to_response(updated_post)
+=======
+        response = post_to_response(updated_post, session)
+>>>>>>> Stashed changes:backend/forum/forum_router.py
 
     await manager.broadcast({
         "event": "post_updated",

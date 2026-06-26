@@ -17,6 +17,7 @@ class PostResponse(BaseModel):
     post_id: str
     thread_id: str
     creator_id: Optional[str]
+    creator_name: Optional[str] = None
     content: str
     is_edited: bool
     created_at: datetime
@@ -28,6 +29,7 @@ class ThreadResponse(BaseModel):
     thread_id: str
     category_id: str
     creator_id: Optional[str]
+    creator_name: Optional[str] = None
     title: str
     slug: str
     view_count: int

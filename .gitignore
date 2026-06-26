@@ -289,4 +289,15 @@ dist
 # Vite files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+<<<<<<< Updated upstream
 .vite/
+=======
+.vite/
+
+
+.claude
+
+.gitignore
+
+backend/uploads/
+>>>>>>> Stashed changes
