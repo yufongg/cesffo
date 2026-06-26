@@ -78,16 +78,14 @@ services:
       - net
     ports:
       - "127.0.0.1:3000:3000" 
-    volumes:
-      - /app/node_modules # Exclude node_modules from host mount to prevent issues
+   
     depends_on:
       - backend # Ensure the web backend is running before the frontend starts
 
 # Define named volumes (if used)
 volumes:
   db_data: # This will create a Docker volume named 'db_data'
-  backend_src:
-  frontend_src:
+
 
 networks:
   net:
