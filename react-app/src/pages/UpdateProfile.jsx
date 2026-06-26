@@ -12,6 +12,14 @@ export default function UpdateProfile() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Password change is a separate concern with its own state and submit.
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+
   // Seed the form once the profile loads (it arrives asynchronously).
   useEffect(() => {
     if (user) {
@@ -50,6 +58,37 @@ export default function UpdateProfile() {
       setError(err.message || 'Could not update your profile.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePasswordSubmit(e) {
+    e.preventDefault();
+    setPwError('');
+    setPwSuccess('');
+
+    if (newPassword !== confirmPassword) {
+      setPwError('New passwords do not match.');
+      return;
+    }
+
+    setPwSaving(true);
+    try {
+      await apiFetch('/api/v1/auth/change-my-password', {
+        method: 'POST',
+        body: {
+          current_password: currentPassword,
+          new_password: newPassword,
+          new_password_confirm: confirmPassword,
+        },
+      });
+      setPwSuccess('Your password has been changed.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setPwError(err.message || 'Could not change your password.');
+    } finally {
+      setPwSaving(false);
     }
   }
 
@@ -105,6 +144,56 @@ export default function UpdateProfile() {
                   }}
                 >
                   Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: '24px' }}>
+          <div className="card__body">
+            <form onSubmit={handlePasswordSubmit} noValidate>
+              <div className="field">
+                <strong className="field__hint">Password Reset</strong>
+              </div>
+
+              <div className="field">
+                <label htmlFor="opass" className="label">Old Password</label>
+                <input id="opass" name="opass" type="password" className="input"
+                  placeholder="Enter your current password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  autoComplete="current-password" required />
+              </div>
+
+              <div className="field">
+                <label htmlFor="npass" className="label">New Password</label>
+                <input id="npass" name="npass" type="password" className="input"
+                  placeholder="Enter new password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password" required minLength={10} />
+                <small className="field__hint">
+                  At least 10 characters with an uppercase, lowercase, number and
+                  special character. Avoid your username or email.
+                </small>
+              </div>
+
+              <div className="field">
+                <label htmlFor="r_npass" className="label">Retype Password</label>
+                <input id="r_npass" name="r_npass" type="password" className="input"
+                  placeholder="Retype new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password" required />
+              </div>
+
+              {pwError && <p role="alert" className="alert alert--error">{pwError}</p>}
+              {pwSuccess && <p role="status" className="alert alert--success">{pwSuccess}</p>}
+
+              <div className="row-actions" style={{ marginTop: '8px' }}>
+                <button type="submit" disabled={pwSaving} className="btn btn--primary">
+                  {pwSaving ? 'Updating…' : 'Change password'}
                 </button>
               </div>
             </form>

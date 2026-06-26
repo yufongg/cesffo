@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { setSession } from '../api/client';
+import { useRefreshAuth } from '../components/Security/RoleCheck';
 
 function CheckIcon() {
   return (
@@ -41,6 +43,7 @@ export default function Register() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const refreshUser = useRefreshAuth();
 
   function update(field) {
     return e => setForm({ ...form, [field]: e.target.value });
@@ -75,8 +78,9 @@ export default function Register() {
       }
 
       // Session is the httpOnly cookie set by the backend; keep role/id as hints.
-      localStorage.setItem('user_role', data.user_role);
-      localStorage.setItem('user_id', data.user_id);
+      setSession(data);
+      // Populate auth context so /courses greets the new user by name immediately.
+      if (refreshUser) await refreshUser();
       navigate('/courses');
     } catch {
       setError('Network error. Please try again.');

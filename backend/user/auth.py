@@ -120,6 +120,11 @@ class PasswordResetRequiredError(Exception):
         self.reset_token = reset_token
 
 
+class InvalidCurrentPasswordError(Exception):
+    """Raised when a logged-in user's supplied current password is wrong."""
+    pass
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password with Argon2id."""
     return _ph.hash(password)
@@ -339,6 +344,43 @@ async def update_profile(
             raise DatabaseError()
 
         return user.username, user.email, user.role
+
+
+async def change_password_authenticated(
+    user_id: UUID, current_password: str, new_password: str, new_password_confirm: str
+) -> None:
+    """Rotate the password for a logged-in user who proves knowledge of their
+    current password. Unlike change_password() this does NOT consume a reset
+    token — the caller is already authenticated via their session cookie.
+
+    Raises InvalidCurrentPasswordError if the current password is wrong,
+    PasswordsMismatchError if the confirmation differs, and PasswordPolicyError
+    if the new password fails the policy or matches the current one.
+    """
+    if new_password != new_password_confirm:
+        raise PasswordsMismatchError()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        # Prove knowledge of the existing password before allowing a change.
+        try:
+            _ph.verify(user.password, current_password)
+        except exceptions.VerifyMismatchError:
+            raise InvalidCurrentPasswordError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        # Same policy as registration (length, blocklist, not username/email).
+        validate_password_strength(new_password, username=user.username, email=user.email)
+
+        # Forbid a no-op "change" back to the same password.
+        if current_password == new_password:
+            raise PasswordPolicyError("New password must be different from the current one")
+
+        user.password = hash_password(new_password)
 
 
 async def change_password(

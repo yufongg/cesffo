@@ -13,10 +13,12 @@ from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
-    register, login, change_password, update_profile, decode_access_token, parse_user_id,
+    register, login, change_password, change_password_authenticated, update_profile,
+    decode_access_token, parse_user_id,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
-    PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
+    PasswordResetRequiredError, InvalidCurrentPasswordError,
+    MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
 
@@ -120,6 +122,12 @@ class UpdateProfileSchema(BaseModel):
         default=None, min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH
     )
     email: EmailStr | None = None
+
+
+class ChangeMyPasswordSchema(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
+    new_password_confirm: str
 
 
 # --- Endpoints ---
@@ -249,6 +257,37 @@ async def update_profile_route(
         raise HTTPException(status_code=500, detail="Profile update failed due to a server error")
 
     return UserProfileResponse(username=username, email=email, role=role)
+
+
+@router.post("/change-my-password", response_model=AuthResponseSchema)
+@limiter.limit("5/minute")  # limit online password-guessing of the current password
+async def change_my_password_route(
+    request: Request,
+    req: ChangeMyPasswordSchema,
+    current_user: dict = Depends(get_current_user),
+):
+    """Self-service password change for a logged-in user. Requires the current
+    password (verified server-side) — distinct from /change-password, which is
+    the forced-reset flow gated by a one-time reset token."""
+    try:
+        uid = parse_user_id(current_user["user_id"])
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid token subject")
+
+    try:
+        await change_password_authenticated(
+            uid, req.current_password, req.new_password, req.new_password_confirm
+        )
+    except InvalidCurrentPasswordError:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    except PasswordsMismatchError:
+        raise HTTPException(status_code=400, detail="New passwords do not match")
+    except PasswordPolicyError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except UserNotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return AuthResponseSchema(detail=AUTH_SUCCESS)
 
 
 @router.post("/change-password", response_model=LoginResponse)

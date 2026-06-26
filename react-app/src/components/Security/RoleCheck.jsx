@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { apiFetch, isAuthenticated } from '../../api/client';
 
 const AuthContext = createContext(null);
@@ -9,24 +9,37 @@ const AuthContext = createContext(null);
 export function RoleCheck({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    // Subscribe to the router so a login's navigate() re-renders us; we then
+    // re-read the user_id hint and refetch (keyed off authHint below) so the
+    // profile syncs once per login/logout, not on every navigation.
+    useLocation();
+    const authHint = isAuthenticated() ? localStorage.getItem('user_id') : null;
 
-    // Re-fetch the profile so consumers reflect changes made elsewhere (e.g. a
-    // username/email update). Returns the latest profile.
+    // Re-fetch the profile so consumers reflect the current session and any
+    // changes made elsewhere (e.g. a username/email update). Returns the profile.
     const refreshUser = useCallback(async () => {
         if (!isAuthenticated()) {
             setUser(null);
             return null;
         }
-        const data = await apiFetch('/api/v1/auth/getProfile');
-        setUser(data);
-        return data;
+        try {
+            const data = await apiFetch('/api/v1/auth/getProfile');
+            setUser(data);
+            return data;
+        } catch {
+            // 401 etc. — apiFetch already cleared the local hints; drop the user.
+            setUser(null);
+            return null;
+        }
     }, []);
 
     useEffect(() => {
-        refreshUser()
-            .catch(() => setUser(null))
-            .finally(() => setLoading(false));
-    }, [refreshUser]);
+        let active = true;
+        // Only the first resolution gates rendering; later identity changes
+        // update context in place without flashing the session gate.
+        refreshUser().finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [refreshUser, authHint]);
 
     if (loading) {
         return <div className="loading-screen">Verifying session…</div>;

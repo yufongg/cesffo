@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
+import { setSession } from '../api/client';
+import { useRefreshAuth } from '../components/Security/RoleCheck';
 
 
 export default function ChangePassword() {
@@ -9,6 +11,7 @@ export default function ChangePassword() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const refreshUser = useRefreshAuth();
 
   // No reset token means the user didn't come through the forced-reset flow.
   if (!resetToken) {
@@ -56,8 +59,9 @@ export default function ChangePassword() {
 
       sessionStorage.removeItem('reset_token');
       // Reset succeeded — the backend issued a real session cookie; keep hints.
-      localStorage.setItem('user_role', data.user_role);
-      localStorage.setItem('user_id', data.user_id);
+      setSession(data);
+      // Load the profile into context so the landing page greets by name.
+      if (refreshUser) await refreshUser();
 
       navigate(data.user_role === 'admin' ? '/admin/dashboard' : '/courses');
     } catch {
@@ -95,8 +99,8 @@ export default function ChangePassword() {
                   autoFocus
                 />
                 <small className="field__hint">
-                  At least 8 characters. Avoid common passwords or your own
-                  name/email.
+                  At least 10 characters with an uppercase, lowercase, number and
+                  special character. Avoid common passwords or your own name/email.
                 </small>
               </div>
 
