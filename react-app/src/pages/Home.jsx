@@ -76,7 +76,7 @@ export default function Home() {
           Cesffo
         </span>
 
-        <h1 className="auth__headline">Build real financial confidence.</h1>
+        <h1 className="auth__headline">This is a test push.</h1>
         <p className="auth__sub">
           Sign in to continue your courses, track your progress, and put practical
           money skills to work.
