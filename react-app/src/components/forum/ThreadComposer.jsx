@@ -15,6 +15,9 @@ export default function ThreadComposer({
   categoryName,
   initialTitle = '',
   initialContent = '',
+  existingFileCount = 0,
+  existingAttachments = [],
+  onDeleteAttachment,
   submitLabel,
   onSubmit,
   onCancel,
@@ -27,14 +30,24 @@ export default function ThreadComposer({
 
   async function handleFiles(event) {
     setError('');
-    const chosen = Array.from(event.target.files || []).slice(0, MAX_FILES);
+    const chosen = Array.from(event.target.files || []);
+
+    if (existingFileCount + chosen.length > MAX_FILES) {
+      setError(`Maximum ${MAX_FILES} images allowed.`);
+      event.target.value = '';
+      setFiles([]);
+      return;
+    }
+
     const accepted = [];
     for (const file of chosen) {
       // eslint-disable-next-line no-await-in-loop
       const { valid, errors } = await validateImageUpload(file);
       if (!valid) {
         setError(`${file.name}: ${errors[0]}`);
-        continue;
+        event.target.value = '';
+        setFiles([]);
+        return;
       }
       accepted.push(file);
     }
@@ -60,6 +73,10 @@ export default function ThreadComposer({
     }
     if (content.length > MAX_CONTENT_LEN) {
       setError(`Post is too long (max ${MAX_CONTENT_LEN} characters).`);
+      return;
+    }
+    if (existingFileCount + files.length > MAX_FILES) {
+      setError(`Maximum ${MAX_FILES} images allowed.`);
       return;
     }
 
@@ -106,6 +123,30 @@ export default function ThreadComposer({
             placeholder="Share the details of your question or discussion…"
           />
         </div>
+
+        {mode === 'edit' && existingAttachments.length > 0 && (
+          <div className="field">
+            <span className="field__label">Current images</span>
+
+            <div className="forum-attachments">
+              {existingAttachments.map((attachment) => (
+                <figure className="forum-attachment" key={attachment.attachment_id}>
+                  <a href={attachment.file_url} target="_blank" rel="noreferrer">
+                    <img src={attachment.file_url} alt={attachment.file_name} loading="lazy" />
+                  </a>
+
+                  <button
+                    type="button"
+                    className="btn btn--danger btn--sm"
+                    onClick={() => onDeleteAttachment?.(attachment.attachment_id)}
+                  >
+                    Delete image
+                  </button>
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="field">
           <span className="field__label">

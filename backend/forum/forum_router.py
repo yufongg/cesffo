@@ -90,7 +90,7 @@ async def list_categories(current_user: dict = Depends(get_current_user)) -> Lis
                 display_order=category.display_order,
                 created_at=category.created_at,
                 threads=[
-                    thread_to_response(thread)
+                    thread_to_response(thread, session)
                     for thread in sorted(
                         category.threads,
                         key=lambda item: item.updated_at or item.created_at,
@@ -119,7 +119,7 @@ async def list_thread_posts(
             .order_by(Post.created_at.asc())
         ).all()
 
-        return [post_to_response(post) for post in posts]
+        return [post_to_response(post, session) for post in posts]
 
 
 # --- Thread CRUD -------------------------------------------------------------
@@ -175,7 +175,7 @@ async def create_thread(
         original_post.updated_at = now
         session.flush()
 
-        response = thread_to_response(thread)
+        response = thread_to_response(thread, session)
 
     await manager.broadcast({
         "event": "thread_created",
@@ -221,7 +221,7 @@ async def update_thread(
         original_post.updated_at = now
         session.flush()
 
-        response = thread_to_response(thread)
+        response = thread_to_response(thread, session)
         post_response = post_to_response(original_post)
 
     await manager.broadcast({
@@ -296,13 +296,41 @@ async def create_post(
         thread.updated_at = now
         session.flush()
 
-        response = post_to_response(post)
+        response = post_to_response(post, session)
+
+        notification_response = None
+
+        # Notify the thread owner when another user replies to their thread.
+        if thread.creator_id and thread.creator_id != uid:
+            actor = session.get(User, uid)
+            actor_name = actor.username if actor else "Someone"
+
+            notification = Notification(
+                recipient_id=thread.creator_id,
+                actor_id=uid,
+                thread_id=thread.thread_id,
+                post_id=post.post_id,
+                notification_type="thread_reply",
+                message=f"{actor_name} replied to your thread: {thread.title}",
+            )
+            session.add(notification)
+            session.flush()
+
+            notification_response = notification_to_response(notification)
 
     await manager.broadcast({
         "event": "post_created",
         "thread_id": response.thread_id,
         "post": response.model_dump(mode="json"),
     })
+
+    if notification_response:
+        await manager.broadcast({
+            "event": "notification_created",
+            "recipient_id": notification_response.recipient_id,
+            "notification": notification_response.model_dump(mode="json"),
+        })
+
     return response
 
 
@@ -328,7 +356,7 @@ async def update_post(
         post.updated_at = datetime.now(timezone.utc)
         session.flush()
 
-        response = post_to_response(post)
+        response = post_to_response(post, session)
 
     await manager.broadcast({
         "event": "post_updated",
@@ -362,7 +390,7 @@ async def add_post_attachments(
         post.updated_at = datetime.now(timezone.utc)
         session.flush()
         session.refresh(post)
-        response = post_to_response(post)
+        response = post_to_response(post, session)
 
     await manager.broadcast({
         "event": "post_updated",

@@ -26,6 +26,7 @@ export default function Forum() {
   const [viewMode, setViewMode] = useState('list'); // list | create | detail | edit
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const selectedThreadIdRef = useRef(null);
   const currentUserId = norm(localStorage.getItem('user_id'));
@@ -83,6 +84,13 @@ export default function Forum() {
     setPosts(await listPosts(threadId));
   }, []);
 
+  const [notificationToast, setNotificationToast] = useState('');
+
+  const showNotificationToast = useCallback((message) => {
+    setNotificationToast(message);
+    window.setTimeout(() => setNotificationToast(''), 5000);
+  }, []);
+
   useEffect(() => { selectedThreadIdRef.current = selectedThreadId; }, [selectedThreadId]);
 
   useEffect(() => {
@@ -92,32 +100,64 @@ export default function Forum() {
   // Live updates: reload the category tree on any forum event, and the open
   // thread's posts when it's the one that changed.
   useEffect(() => {
+    if (!currentUserId) {
+      return undefined;
+    }
+
     let socket;
     let retry;
 
     function connect() {
-      socket = new WebSocket(forumWsUrl());
+      const url = forumWsUrl();
+      console.log('Forum WS URL:', url);
+
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        console.log('Forum WS connected');
+      };
+
+      socket.onerror = (event) => {
+        console.log('Forum WS error:', event);
+      };
+
+      socket.onclose = (event) => {
+        console.log('Forum WS closed:', event.code, event.reason);
+        retry = window.setTimeout(connect, 3000);
+      };
+
       socket.onmessage = async (event) => {
+        console.log('Forum WS message:', event.data);
+
         try {
           const message = JSON.parse(event.data);
           const current = selectedThreadIdRef.current;
+
           if (message.event === 'thread_deleted' && current && norm(message.thread_id) === norm(current)) {
             setSelectedThreadId(null);
             setPosts([]);
             setViewMode('list');
           }
+
           await loadCategories();
+
           if (current && norm(message.thread_id) === norm(current) && message.event !== 'thread_deleted') {
             await loadPosts(current);
           }
-        } catch {
-          /* ignore malformed frames */
+
+          if (message.event === 'notification_created') {
+            if (norm(message.recipient_id) === currentUserId) {
+              showNotificationToast(message.notification?.message || 'You have a new notification.');
+            }
+          }
+        } catch (error) {
+          console.log('Forum WS parse error:', error);
         }
       };
-      socket.onclose = () => { retry = window.setTimeout(connect, 3000); };
     }
 
     connect();
+
     return () => {
       window.clearTimeout(retry);
       if (socket) {
@@ -125,7 +165,7 @@ export default function Forum() {
         socket.close();
       }
     };
-  }, [loadCategories, loadPosts]);
+  }, [loadCategories, loadPosts, currentUserId, showNotificationToast]);
 
   function selectCategory(category) {
     setSelectedCategoryId(category.category_id);
@@ -182,17 +222,31 @@ export default function Forum() {
     }
   }
 
-  async function handleDelete() {
+  function openConfirmDialog({ title, message, onConfirm }) {
+    setConfirmDialog({ title, message, onConfirm });
+  }
+
+  function closeConfirmDialog() {
+    setConfirmDialog(null);
+  }
+
+  function handleDelete() {
     if (!selectedThread) return;
-    if (!window.confirm('Delete this thread? This removes the post and its images.')) return;
-    try {
-      await deleteForumThread(selectedThread.thread_id);
-      await loadCategories();
-      backToList();
-      flashStatus('Thread deleted.');
-    } catch (e) {
-      flashError(e.message);
-    }
+
+    openConfirmDialog({
+      title: 'Delete Thread',
+      message: 'Delete this thread? This removes the post and its images.',
+      onConfirm: async () => {
+        try {
+          await deleteForumThread(selectedThread.thread_id);
+          await loadCategories();
+          backToList();
+          flashStatus('Thread deleted.');
+        } catch (e) {
+          flashError(e.message);
+        }
+      },
+    });
   }
 
   async function handleReply({ content, files }) {
@@ -208,25 +262,35 @@ export default function Forum() {
     }
   }
 
-  async function handleDeletePost(postId) {
-    if (!window.confirm('Delete this reply?')) return;
-    try {
-      await deleteForumPost(postId);
-      if (selectedThread) await loadPosts(selectedThread.thread_id);
-      flashStatus('Reply deleted.');
-    } catch (e) {
-      flashError(e.message);
-    }
+  function handleDeletePost(postId) {
+    openConfirmDialog({
+      title: 'Delete Reply',
+      message: 'Delete this reply?',
+      onConfirm: async () => {
+        try {
+          await deleteForumPost(postId);
+          if (selectedThread) await loadPosts(selectedThread.thread_id);
+          flashStatus('Reply deleted.');
+        } catch (e) {
+          flashError(e.message);
+        }
+      },
+    });
   }
 
-  async function handleDeleteAttachment(attachmentId) {
-    if (!window.confirm('Remove this image?')) return;
-    try {
-      await deletePostAttachment(attachmentId);
-      if (selectedThreadId) await loadPosts(selectedThreadId);
-    } catch (e) {
-      flashError(e.message);
-    }
+  function handleDeleteAttachment(attachmentId) {
+    openConfirmDialog({
+      title: 'Remove Image',
+      message: 'Remove this image?',
+      onConfirm: async () => {
+        try {
+          await deletePostAttachment(attachmentId);
+          if (selectedThreadId) await loadPosts(selectedThreadId);
+        } catch (e) {
+          flashError(e.message);
+        }
+      },
+    });
   }
 
   return (
@@ -279,6 +343,9 @@ export default function Forum() {
               categoryName={selectedCategory?.name}
               initialTitle={selectedThread.title}
               initialContent={posts[0]?.content || ''}
+              existingFileCount={posts[0]?.attachments?.length || 0}
+              existingAttachments={posts[0]?.attachments || []}
+              onDeleteAttachment={handleDeleteAttachment}
               onSubmit={handleUpdate}
               onCancel={() => setViewMode('detail')}
             />
@@ -303,7 +370,42 @@ export default function Forum() {
             />
           </>
         )}
+        {confirmDialog && (
+          <div className="confirm-overlay">
+            <div className="confirm-modal">
+              <h3>{confirmDialog.title}</h3>
+              <p>{confirmDialog.message}</p>
+
+              <div className="confirm-actions">
+                <button
+                  type="button"
+                  className="btn btn--danger"
+                  onClick={async () => {
+                    const action = confirmDialog.onConfirm;
+                    closeConfirmDialog();
+                    await action();
+                  }}
+                >
+                  Delete
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={closeConfirmDialog}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+      {notificationToast && (
+        <div className="notification-toast">
+          🔔 {notificationToast}
+        </div>
+      )}
     </div>
   );
 }
