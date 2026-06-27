@@ -109,6 +109,9 @@ def _mock_user_for_change(current_plain="CurrentP@ss1"):
     user.role = "student"
     user.force_password_reset = True
     user.auth_attempts = 3
+    user.is_active = True
+    user.is_deleted = False
+    user.lockout_timestamp = None
     return user
 
 
