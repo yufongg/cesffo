@@ -7,6 +7,7 @@ import Footer from './components/Footer';
 import Home from './pages/Home';
 import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
+import ForgotPassword from './pages/ForgotPassword';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import CoursePreview from './pages/CoursePreview';
@@ -35,8 +36,12 @@ export default function App() {
                   {/* /login is an alias for the home login form */}
                   <Route path="/login" element={<Home />} />
                   <Route path="/register" element={<Register />} />
+                  {/* Self-service "forgot password" — request a reset link by email. */}
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
                   {/* Forced password change — self-guards via the reset token. */}
                   <Route path="/change-password" element={<ChangePassword />} />
+                  {/* Reset via emailed one-time link — token comes from the URL. */}
+                  <Route path="/reset-password" element={<ChangePassword />} />
 
                   {/* Default landing for any authenticated user. */}
                   <Route

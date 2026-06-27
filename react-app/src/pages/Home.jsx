@@ -134,6 +134,10 @@ export default function Home() {
           </form>
 
           <p className="auth__alt">
+            <Link to="/forgot-password">Forgot your password?</Link>
+          </p>
+
+          <p className="auth__alt">
             New to Cesffo? <Link to="/register">Create an account</Link>
           </p>
         </div>

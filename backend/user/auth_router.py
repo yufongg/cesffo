@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+import os
+from urllib.parse import quote
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
@@ -8,22 +11,33 @@ from sqlalchemy import select
 from core.rate_limit import limiter
 from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from common.audit import log_action
+from common.email import send_password_reset_email
 from common.security import client_ip as _client_ip
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
     register, login, change_password, change_password_authenticated, update_profile,
-    decode_access_token, parse_user_id,
+    request_password_reset, decode_access_token, parse_user_id,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
-    PasswordResetRequiredError, InvalidCurrentPasswordError,
-    MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_INSTRUCTOR,
+    PasswordResetRequiredError, InvalidCurrentPasswordError, ResetTokenInvalidError,
+    MIN_PASSWORD_LENGTH, RESET_LINK_EXPIRE_MINUTES, ROLE_ADMIN, ROLE_INSTRUCTOR,
     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
+
+# Base URL of the React SPA, used to build the password-reset link placed in the
+# email. Set FRONTEND_BASE_URL in production (e.g. https://app.example.com); falls
+# back to the local dev origin otherwise.
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+
+# Returned identically whether or not the email exists — anti-enumeration.
+_GENERIC_RESET_MESSAGE = (
+    "If an account exists for that email, a password reset link has been sent."
+)
 
 # A forced-reset token is a short-lived bearer token the client holds in memory
 # and sends in the Authorization header, NOT a session cookie. So the reset flow
@@ -74,8 +88,9 @@ async def require_instructor(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
-async def get_reset_subject(token: str = Depends(reset_scheme)) -> str:
-
+async def get_reset_token_claims(token: str = Depends(reset_scheme)) -> dict:
+    """Validate a password-reset bearer token and return its claims (subject +
+    single-use fingerprint). Rejects anything that is not a reset-scoped token."""
     try:
         payload = decode_access_token(token)
     except JWTError:
@@ -85,7 +100,7 @@ async def get_reset_subject(token: str = Depends(reset_scheme)) -> str:
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(status_code=401, detail="Invalid reset token")
-    return sub
+    return {"sub": sub, "pfp": payload.get("pfp")}
 
 # --- Request/Response Schemas ---
 class UserRegistrationSchema(BaseModel):
@@ -114,6 +129,10 @@ class UserProfileResponse(BaseModel):
 class ChangePasswordSchema(BaseModel):
     new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
     new_password_confirm: str
+
+
+class ForgotPasswordSchema(BaseModel):
+    email: EmailStr
 
 
 class UpdateProfileSchema(BaseModel):
@@ -164,6 +183,16 @@ def _record_login_attempt(*, user_id, outcome, ip, reason=None):
         log_action(
             session, user_id=user_id, action="login",
             outcome=outcome, ip_address=ip, details=details,
+        )
+
+
+def _record_password_reset_request(*, user_id, ip):
+    """SR-11: persist a self-service reset request to the append-only audit log in
+    its own transaction (mirrors _record_login_attempt)."""
+    with get_db_session() as session:
+        log_action(
+            session, user_id=user_id, action="password_reset_request",
+            outcome="success", ip_address=ip,
         )
 
 
@@ -290,23 +319,64 @@ async def change_my_password_route(
     return AuthResponseSchema(detail=AUTH_SUCCESS)
 
 
+@router.post("/forgot-password", response_model=AuthResponseSchema)
+@limiter.limit("5/minute")  # throttle reset-email spam / enumeration probing per IP
+async def forgot_password_route(
+    request: Request,
+    req: ForgotPasswordSchema,
+    background_tasks: BackgroundTasks,
+):
+    """Self-service password reset. Emails a one-time link to the account owner.
+
+    Always returns the SAME generic 200 whether or not the email matches an
+    account, so it cannot be used to discover which emails are registered. The
+    email is sent in a background task so the response time does not depend on
+    account existence either (timing-oracle defence)."""
+    ip = _client_ip(request)
+    try:
+        result = await request_password_reset(req.email)
+    except Exception:
+        # Never let an internal error reveal whether the account exists.
+        result = None
+
+    if result:
+        uid, token, username, email = result
+        reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
+        # Deliver after the response is sent — keeps timing uniform and SMTP
+        # latency/errors off the request path.
+        background_tasks.add_task(
+            send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
+        )
+        # SR-11: audit in the background too, so the request path does identical
+        # work whether or not the account exists (anti-enumeration timing).
+        background_tasks.add_task(_record_password_reset_request, user_id=uid, ip=ip)
+
+    return AuthResponseSchema(detail=_GENERIC_RESET_MESSAGE)
+
+
 @router.post("/change-password", response_model=LoginResponse)
 @limiter.limit("5/minute")  # limit reset-token replay / password-churn attempts
 async def change_password_route(
     request: Request,
     req: ChangePasswordSchema,
     response: Response,
-    sub: str = Depends(get_reset_subject),
+    claims: dict = Depends(get_reset_token_claims),
 ):
 
     try:
-        uid = parse_user_id(sub)
+        uid = parse_user_id(claims["sub"])
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid reset token subject")
 
     try:
         access_token, user_id, role = await change_password(
-            uid, req.new_password, req.new_password_confirm
+            uid, req.new_password, req.new_password_confirm,
+            expected_fingerprint=claims.get("pfp"),
+        )
+    except ResetTokenInvalidError:
+        raise HTTPException(
+            status_code=401,
+            detail="This reset link is no longer valid. Please request a new one.",
         )
     except PasswordsMismatchError:
         raise HTTPException(status_code=400, detail="Passwords do not match")

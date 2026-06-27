@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 import secrets
 import string
@@ -7,7 +9,7 @@ from fastapi import HTTPException
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
-from typing import Tuple
+from typing import Optional, Tuple
 from uuid import UUID
 
 from core import account_lockout
@@ -32,6 +34,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 RESET_TOKEN_EXPIRE_MINUTES = 10
+# A self-service email link is clicked out-of-band (the user must switch to their
+# mailbox), so it gets a slightly longer — but still short — window than the
+# in-session forced-reset token above.
+RESET_LINK_EXPIRE_MINUTES = 30
 MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
@@ -125,6 +131,13 @@ class InvalidCurrentPasswordError(Exception):
     pass
 
 
+class ResetTokenInvalidError(Exception):
+    """Raised when a password-reset token no longer matches the account state —
+    e.g. it was already used (the password changed) or the password was changed
+    by another path. Gives the stateless reset token single-use semantics."""
+    pass
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password with Argon2id."""
     return _ph.hash(password)
@@ -188,13 +201,27 @@ def create_access_token(user_id: str, role: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_reset_token(user_id: str) -> str:
+def reset_token_fingerprint(password_hash: str) -> str:
+    """Derive a short, one-way fingerprint of the user's CURRENT password hash,
+    keyed by the server secret. Embedded in a reset token (claim ``pfp``) and
+    re-checked when the token is spent: once the password changes, the stored hash
+    changes, so the fingerprint no longer matches and the token is rejected. This
+    gives the stateless JWT single-use behaviour without any server-side denylist.
+    The raw password hash is never exposed — only this keyed digest."""
+    return hmac.new(SECRET_KEY.encode(), password_hash.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def create_reset_token(
+    user_id: str, password_hash: str, expires_minutes: int = RESET_TOKEN_EXPIRE_MINUTES
+) -> str:
     """A short-lived token authorising exactly one action: choosing a new
-    password. It carries no role and is rejected by every normal endpoint."""
+    password. It carries no role, is rejected by every normal endpoint, and is
+    bound to the current password hash so it can only be used once."""
     payload = {
         "sub": user_id,
         "scope": SCOPE_PASSWORD_RESET,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES),
+        "pfp": reset_token_fingerprint(password_hash),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -285,10 +312,11 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         must_reset = existing_user.force_password_reset
         uid = existing_user.user_id
         role = existing_user.role
+        pwd_hash = existing_user.password
 
 
     if must_reset:
-        raise PasswordResetRequiredError(create_reset_token(uid.hex))
+        raise PasswordResetRequiredError(create_reset_token(uid.hex, pwd_hash))
 
     token = create_access_token(uid.hex, role)
     return token, uid, role
@@ -383,11 +411,36 @@ async def change_password_authenticated(
         user.password = hash_password(new_password)
 
 
+async def request_password_reset(email: EmailStr) -> Optional[Tuple[UUID, str, str, str]]:
+    """Self-service "forgot password": look up an account by email and, if it is
+    eligible to sign in, mint a one-time reset token for it.
+
+    Returns ``(user_id, reset_token, username, email)`` when a deliverable account
+    exists, or ``None`` otherwise (unknown / banned / soft-deleted). The CALLER
+    MUST return an identical generic response in both cases so the endpoint does
+    not become an account-enumeration oracle. Crucially, the user's existing
+    password is left untouched — nothing changes until they complete the reset."""
+    email = email.strip().lower()
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
+        if not user or user.is_deleted or not user.is_active:
+            return None
+        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
+        return user.user_id, token, user.username, user.email
+
+
 async def change_password(
-    user_id: UUID, new_password: str, new_password_confirm: str
+    user_id: UUID,
+    new_password: str,
+    new_password_confirm: str,
+    expected_fingerprint: Optional[str] = None,
 ) -> Tuple[str, UUID, str]:
     """Rotate the password for a user who authenticated via a reset token.
-    Clears the force-reset flag and any lockout, then issues a real session."""
+    Clears the force-reset flag and any lockout, then issues a real session.
+
+    ``expected_fingerprint`` is the ``pfp`` claim carried by the reset token; it
+    must still match the stored password hash, otherwise the token has already
+    been spent (or the password changed since it was issued) and is rejected."""
     if new_password != new_password_confirm:
         raise PasswordsMismatchError()
 
@@ -395,6 +448,16 @@ async def change_password(
         user = session.scalar(select(User).where(User.user_id == user_id))
         if not user:
             raise UserNotFoundError()
+
+        if not user.is_active or user.is_deleted:
+            raise ResetTokenInvalidError()
+
+        # Single-use guard: the token is bound to the password hash it was minted
+        # against. Reject a replayed/stale token in constant time.
+        if expected_fingerprint is not None and not hmac.compare_digest(
+            expected_fingerprint, reset_token_fingerprint(user.password)
+        ):
+            raise ResetTokenInvalidError()
 
         # Same policy as registration (length, blocklist, not username/email).
         validate_password_strength(new_password, username=user.username, email=user.email)
@@ -409,6 +472,7 @@ async def change_password(
         user.password = hash_password(new_password)
         user.force_password_reset = False
         user.auth_attempts = 0
+        user.lockout_timestamp = None
         uid = user.user_id
         role = user.role
 
