@@ -57,7 +57,7 @@ export default function ThreadList({ category, onOpenThread, onStartThread }) {
             >
               <div className="forum-thread-row__main">
                 <h3>{thread.title}</h3>
-                <p>Started {formatDate(thread.created_at)}</p>
+                <p>{thread.creator_name || 'Unknown user'} started {formatDate(thread.created_at)}</p>
               </div>
               <div className="forum-thread-row__stats">
                 <span><strong>{thread.post_count}</strong> posts</span>

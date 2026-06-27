@@ -319,3 +319,6 @@ vite.config.ts.timestamp-*
 .claude
 
 .gitignore
+
+# Uploaded forum images
+backend/uploads/forum/
