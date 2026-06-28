@@ -11,6 +11,14 @@ function BookIcon() {
   );
 }
 
+function formatMoney(cents = 0, currency = 'SGD') {
+  if (!cents) return 'Free';
+  return new Intl.NumberFormat('en-SG', {
+    style: 'currency',
+    currency: currency || 'SGD',
+  }).format(cents / 100);
+}
+
 export default function CourseCard({ course }) {
   const {
     course_name,
@@ -19,6 +27,8 @@ export default function CourseCard({ course }) {
     summary,
     level,
     xp_reward = 0,
+    price_cents = 0,
+    currency = 'SGD',
     enrollment_count = 0,
     is_enrolled = false,
     progress,
@@ -71,7 +81,9 @@ export default function CourseCard({ course }) {
         )}
 
         <div className="course-card__foot">
-          <span className="course-card__enrollments">{enrollment_count} enrolled</span>
+          <span className="course-card__enrollments">
+            {formatMoney(price_cents, currency)} · {enrollment_count} enrolled
+          </span>
           <button
             type="button"
             className={`btn btn--sm ${is_enrolled ? 'btn--primary' : 'btn--secondary'}`}

@@ -206,7 +206,6 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            # Intentional: verify runs only to equalize timing vs the real path.
             except Exception:  # nosec B110
                 pass
             raise UserNotFoundError()

@@ -58,14 +58,35 @@ jobs:
     - name: Spin up docker instances
       run: docker compose -f docker-compose.yml up --build -d
 
-    - name: Wait for Services to Initialize
-      run: sleep 120
+    - name: Wait for Backend Healthcheck
+      run: |
+        for i in {1..36}; do
+          BACKEND_CONTAINER=$(docker compose -f docker-compose.yml ps -q backend)
+          STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$BACKEND_CONTAINER" 2>/dev/null || echo "missing")
+          if [ "$STATUS" = "healthy" ]; then
+            docker compose -f docker-compose.yml ps
+            exit 0
+          fi
+
+          echo "Waiting for backend healthcheck... ($i/36, status: $STATUS)"
+          sleep 5
+        done
+
+        docker compose -f docker-compose.yml ps
+        docker compose -f docker-compose.yml logs --no-color backend db
+        exit 1
 
     - name: Execute Backend Pytest Suite
       run: docker compose -f docker-compose.yml exec -T backend pytest ./tests
 
     - name: Execute Frontend Vitest Suite
       run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
+
+    - name: Dump Docker Logs on Failure
+      if: failure()
+      run: |
+        docker compose -f docker-compose.yml ps
+        docker compose -f docker-compose.yml logs --no-color backend db frontend
 
     - name: Graceful Teardown
       if: always()

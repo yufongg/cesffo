@@ -124,6 +124,8 @@ class Course(Base):
     instructor_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     course_name = Column(String(255), nullable=False)
     xp_reward = Column(Integer, default=0, nullable=False)        # XP awarded to a learner on completion
+    price_cents = Column(Integer, default=0, nullable=False)      # 0 means free; money is stored in cents
+    currency = Column(String(3), default="SGD", nullable=False)
 
     content = Column(JSON, nullable=False, default=dict)          # Maps structure JSON block
     tags = Column(JSON, nullable=False, default=list)             # Maps str[] as JSON Array array list
