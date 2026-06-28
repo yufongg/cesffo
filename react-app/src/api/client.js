@@ -78,6 +78,11 @@ export async function apiFetch(path, { method = 'GET', body } = {}) {
 // Build a same-origin WebSocket URL. The auth cookie is sent automatically on
 // the handshake (same origin), so no token is placed in the URL.
 export function wsUrl(path) {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+
+  if (process.env.NODE_ENV === "development") {
+    return `${proto}://${window.location.hostname}:5000${path}`;
+  }
+
   return `${proto}://${window.location.host}${path}`;
 }

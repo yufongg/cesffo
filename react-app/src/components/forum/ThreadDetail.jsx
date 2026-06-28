@@ -63,7 +63,9 @@ export default function ThreadDetail({
           <div className="forum-thread__head">
             <h1>{thread.title}</h1>
             <div className="forum-thread__meta">
-              <span>{formatDate(stamp)}</span>
+              <span>
+                By {originalPost.creator_name || thread.creator_name || 'Unknown user'} on {formatDate(stamp)}
+              </span>
               {originalPost.is_edited && <span className="tag">Edited</span>}
               {thread.is_locked && <span className="tag">Locked</span>}
             </div>
@@ -73,7 +75,7 @@ export default function ThreadDetail({
 
           <PostAttachments
             attachments={originalPost.attachments}
-            canManage={canManage}
+            canManage={false}
             onDeleteAttachment={onDeleteAttachment}
           />
 
@@ -102,7 +104,9 @@ export default function ThreadDetail({
             <article className="card forum-reply-item" key={reply.post_id}>
               <div className="card__body">
                 <div className="forum-thread__meta">
-                  <span>{formatDate(replyStamp)}</span>
+                  <span>
+                    By {reply.creator_name || 'Unknown user'} on {formatDate(replyStamp)}
+                  </span>
                   {reply.is_edited && <span className="tag">Edited</span>}
                 </div>
 
