@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile
 
-from model.models import Notification, Post, PostAttachment, Thread
+from model.models import Notification, Post, PostAttachment, Thread, User
 from common.sanitize import sanitize_html
 from .schemas import AttachmentResponse, NotificationResponse, PostResponse, ThreadResponse
 
@@ -74,6 +74,14 @@ def detect_image_mime(data: bytes) -> Optional[str]:
     return None
 
 
+
+def get_creator_name(session, creator_id) -> Optional[str]:
+    """Return the display name for forum authors when a DB session is available."""
+    if not session or not creator_id:
+        return None
+    user = session.get(User, creator_id)
+    return user.username if user else None
+
 def attachment_to_response(attachment: PostAttachment) -> AttachmentResponse:
     return AttachmentResponse(
         attachment_id=attachment.attachment_id.hex,
@@ -85,11 +93,12 @@ def attachment_to_response(attachment: PostAttachment) -> AttachmentResponse:
     )
 
 
-def post_to_response(post: Post) -> PostResponse:
+def post_to_response(post: Post, session=None) -> PostResponse:
     return PostResponse(
         post_id=post.post_id.hex,
         thread_id=post.thread_id.hex,
         creator_id=post.creator_id.hex if post.creator_id else None,
+        creator_name=get_creator_name(session, post.creator_id),
         content=post.content,
         is_edited=post.is_edited,
         created_at=post.created_at,
@@ -98,12 +107,13 @@ def post_to_response(post: Post) -> PostResponse:
     )
 
 
-def thread_to_response(thread: Thread) -> ThreadResponse:
+def thread_to_response(thread: Thread, session=None) -> ThreadResponse:
     top_level_posts = [post for post in thread.posts if post.parent_id is None]
     return ThreadResponse(
         thread_id=thread.thread_id.hex,
         category_id=thread.category_id.hex,
         creator_id=thread.creator_id.hex if thread.creator_id else None,
+        creator_name=get_creator_name(session, thread.creator_id),
         title=thread.title,
         slug=thread.slug,
         view_count=thread.view_count,

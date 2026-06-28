@@ -5,12 +5,12 @@ import { sanitizeHtml } from '../Security/SafeHtml';
 export default function RichTextEditor({ initialContent = '', onChange, placeholder = 'Write your post…' }) {
   const editorRef = useRef(null);
   const [active, setActive] = useState({ bold: false, italic: false, underline: false, bullet: false });
-
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkError, setLinkError] = useState('');
 
   useEffect(() => {
     const el = editorRef.current;
-    // Run incoming content through the shared allow-list before assigning it to
-    // the live contentEditable, so a malformed/hostile draft can't seed markup.
     const safe = sanitizeHtml(initialContent);
     if (el && el.innerHTML !== safe) {
       el.innerHTML = safe;
@@ -35,14 +35,33 @@ export default function RichTextEditor({ initialContent = '', onChange, placehol
     emit();
   };
 
-  const addLink = () => {
-    const url = window.prompt('Enter a URL (https://…)');
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
-      window.alert('Links must start with http:// or https://');
+  const openLinkModal = () => {
+    setLinkUrl('');
+    setLinkError('');
+    setShowLinkModal(true);
+  };
+
+  const closeLinkModal = () => {
+    setShowLinkModal(false);
+    setLinkUrl('');
+    setLinkError('');
+  };
+
+  const insertLink = () => {
+    const trimmedUrl = linkUrl.trim();
+
+    if (!trimmedUrl) {
+      setLinkError('Please enter a URL.');
       return;
     }
-    exec('createLink', url);
+
+    if (!/^https?:\/\//i.test(trimmedUrl)) {
+      setLinkError('Links must start with http:// or https://');
+      return;
+    }
+
+    exec('createLink', trimmedUrl);
+    closeLinkModal();
   };
 
   const Btn = ({ label, title, on, command, onClick }) => (
@@ -65,7 +84,7 @@ export default function RichTextEditor({ initialContent = '', onChange, placehol
         <Btn label={<u>U</u>} title="Underline" on={active.underline} command="underline" />
         <Btn label="• List" title="Bullet list" on={active.bullet} command="insertUnorderedList" />
         <Btn label="Heading" title="Heading" onClick={() => exec('formatBlock', 'h3')} />
-        <Btn label="🔗 Link" title="Insert link" onClick={addLink} />
+        <Btn label="🔗 Link" title="Insert link" onClick={openLinkModal} />
       </div>
 
       <div
@@ -78,6 +97,51 @@ export default function RichTextEditor({ initialContent = '', onChange, placehol
         onKeyUp={refreshActive}
         onMouseUp={refreshActive}
       />
+
+      {showLinkModal && (
+        <div className="confirm-overlay">
+          <div className="confirm-modal">
+            <h3>Insert Link</h3>
+            <p>Enter a URL starting with http:// or https://.</p>
+
+            {linkError && (
+              <p role="alert" className="alert alert--error">
+                {linkError}
+              </p>
+            )}
+
+            <label className="field">
+              <span className="field__label">URL</span>
+              <input
+                type="url"
+                className="input"
+                value={linkUrl}
+                onChange={(event) => setLinkUrl(event.target.value)}
+                placeholder="https://example.com"
+                autoFocus
+              />
+            </label>
+
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={insertLink}
+              >
+                Insert
+              </button>
+
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={closeLinkModal}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

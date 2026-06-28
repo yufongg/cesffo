@@ -19,14 +19,24 @@ export default function ReplyComposer({ onSubmit }) {
 
   async function handleFiles(event) {
     setError('');
-    const chosen = Array.from(event.target.files || []).slice(0, MAX_FILES);
+    const chosen = Array.from(event.target.files || []);
+
+    if (chosen.length > MAX_FILES) {
+      setError(`Maximum ${MAX_FILES} images allowed.`);
+      event.target.value = '';
+      setFiles([]);
+      return;
+    }
+
     const accepted = [];
     for (const file of chosen) {
       // eslint-disable-next-line no-await-in-loop
       const { valid, errors } = await validateImageUpload(file);
       if (!valid) {
         setError(`${file.name}: ${errors[0]}`);
-        continue;
+        event.target.value = '';
+        setFiles([]);
+        return;
       }
       accepted.push(file);
     }
