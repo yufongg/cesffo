@@ -76,7 +76,7 @@ const ITEMS = [
   { to: '/achievements', label: 'Achievements', Icon: TrophyIcon },
   { to: '/leaderboard', label: 'Leaderboard', Icon: LeaderboardIcon },
   { to: '/forums', label: 'Forums', Icon: ForumIcon },
-  { to: '/support', label: 'Help & support', Icon: SupportIcon },
+  { to: '/help', label: 'Help & support', Icon: SupportIcon },
 ];
 
 export default function DashboardSidebar() {
