@@ -27,6 +27,13 @@ services:
       # APP_ENV=production. Injected at runtime only — never bake it into the image.
       MASTER_KEY: ${MASTER_KEY:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Password-reset email (Gmail SMTP). If the Gmail vars are unset the backend
+      # falls back to printing the reset link to its logs instead of sending.
+      GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Cesffo}
+      # Base URL used to build the reset link in the email.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
     depends_on:
       db: # Ensure the 'db' service starts before the 'web' service
         condition: service_healthy

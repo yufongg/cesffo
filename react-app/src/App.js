@@ -8,6 +8,7 @@ import Home from './pages/Home';
 import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
 import ForgotPassword from './pages/ForgotPassword';
+import HelpSupport from './pages/HelpSupport';
 import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import CoursePreview from './pages/CoursePreview';
@@ -42,6 +43,9 @@ export default function App() {
                   <Route path="/change-password" element={<ChangePassword />} />
                   {/* Reset via emailed one-time link — token comes from the URL. */}
                   <Route path="/reset-password" element={<ChangePassword />} />
+
+                  {/* Public help & support — reachable even when signed out. */}
+                  <Route path="/help" element={<HelpSupport />} />
 
                   {/* Default landing for any authenticated user. */}
                   <Route
