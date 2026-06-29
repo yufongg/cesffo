@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { setSession } from '../api/client';
+import { useRefreshAuth } from '../components/Security/RoleCheck';
 
 function CheckIcon() {
   return (
@@ -10,10 +12,14 @@ function CheckIcon() {
   );
 }
 
-// NOTE: this is convenience only — the server is the source of truth.
+// NOTE: this is convenience only — the server is the source of truth (SR-01).
 function clientPasswordIssues(pw) {
   const issues = [];
-  if (pw.length < 8) issues.push('at least 8 characters');
+  if (pw.length < 10) issues.push('at least 10 characters');
+  if (!/[A-Z]/.test(pw)) issues.push('an uppercase letter');
+  if (!/[a-z]/.test(pw)) issues.push('a lowercase letter');
+  if (!/[0-9]/.test(pw)) issues.push('a number');
+  if (!/[^A-Za-z0-9]/.test(pw)) issues.push('a special character');
   return issues;
 }
 
@@ -37,6 +43,7 @@ export default function Register() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const refreshUser = useRefreshAuth();
 
   function update(field) {
     return e => setForm({ ...form, [field]: e.target.value });
@@ -71,8 +78,9 @@ export default function Register() {
       }
 
       // Session is the httpOnly cookie set by the backend; keep role/id as hints.
-      localStorage.setItem('user_role', data.user_role);
-      localStorage.setItem('user_id', data.user_id);
+      setSession(data);
+      // Populate auth context so /courses greets the new user by name immediately.
+      if (refreshUser) await refreshUser();
       navigate('/courses');
     } catch {
       setError('Network error. Please try again.');
@@ -127,10 +135,11 @@ export default function Register() {
             <div className="field">
               <label htmlFor="password" className="label">Password</label>
               <input id="password" type="password" className="input" value={form.password}
-                onChange={update('password')} placeholder="At least 8 characters" required
+                onChange={update('password')} placeholder="At least 10 characters" required
                 autoComplete="new-password" />
               <small className="field__hint">
-                At least 8 characters. Avoid common or easily guessed passwords.
+                At least 10 characters with an uppercase letter, a lowercase letter,
+                a number and a special character. Avoid common passwords.
               </small>
             </div>
 

@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from db.db import SessionLocal, get_db_session
 from model.models import User, Cart
+from common.encryption import blind_index
 
 def test_database_connection_direct():
     """
@@ -41,13 +42,19 @@ def test_database():
 def test_db_models():
     try:
         with get_db_session() as session:
-            session.query(User).filter(User.email == "test@example.com").delete()
+            # email is AES-256-GCM encrypted (randomized), so it can NEVER be used
+            # in a WHERE/equality filter — a freshly-encrypted literal uses a new
+            # nonce and matches no stored row. Look it up via the deterministic
+            # blind index instead (the same pattern register()/login() use).
+            email = "test@example.com"
+            session.query(User).filter(User.email_bidx == blind_index(email)).delete()
             session.commit()
 
             test_user = User(
                 username="test_runner",
                 password="hashed_secure_password_string",
-                email="test@example.com"
+                email=email,
+                email_bidx=blind_index(email),  # NOT NULL companion index
             )
             session.add(test_user)
             session.commit()

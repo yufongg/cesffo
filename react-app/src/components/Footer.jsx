@@ -32,7 +32,7 @@ export default function Footer() {
             <h4>Company</h4>
             <ul>
               <li><Link to="/">About</Link></li>
-              <li><Link to="/">Contact</Link></li>
+              <li><Link to="/help">Contact</Link></li>
               <li><Link to="/">Careers</Link></li>
             </ul>
           </div>

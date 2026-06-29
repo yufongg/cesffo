@@ -54,6 +54,13 @@ def ensure_schema():
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS lockout_timestamp TIMESTAMPTZ',
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS xp INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1',
+        # Blind index for the now-encrypted email column (login/uniqueness lookups).
+        # Added nullable so the migration succeeds on tables with existing rows;
+        # rows seeded before encryption must be re-seeded (their email cannot be
+        # decrypted by the new key). The model declares it NOT NULL UNIQUE for
+        # fresh installs via create_all().
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS email_bidx VARCHAR(64)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_email_bidx ON "user" (email_bidx)',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0',
         "ALTER TABLE course ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'SGD'",

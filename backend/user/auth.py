@@ -1,18 +1,26 @@
+import hashlib
+import hmac
 import os
 import secrets
-from argon2 import PasswordHasher, exceptions
+import string
+from argon2 import PasswordHasher, Type, exceptions
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
-from typing import Tuple
+from typing import Optional, Tuple
 from uuid import UUID
 
 from core import account_lockout
 
+from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import User
+
+# Username policy mirrors the registration schema (router-level Field bounds).
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 150
 
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
@@ -26,6 +34,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 RESET_TOKEN_EXPIRE_MINUTES = 10
+# A self-service email link is clicked out-of-band (the user must switch to their
+# mailbox), so it gets a slightly longer — but still short — window than the
+# in-session forced-reset token above.
+RESET_LINK_EXPIRE_MINUTES = 30
 MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
@@ -38,15 +50,30 @@ ROLE_INSTRUCTOR = "instructor"
 ROLE_ADMIN = "admin"
 ALLOWED_ROLES = frozenset({ROLE_STUDENT, ROLE_INSTRUCTOR, ROLE_ADMIN})
 
-# --- Password policy (NIST SP 800-63B aligned: length first, block known-bad) ---
-MIN_PASSWORD_LENGTH = 8
-# NIST 800-63B says verifiers SHALL allow at least 64 chars. We cap at 128 to
-# bound Argon2 work (DoS guard) while still permitting passphrases. This MUST
-# match the router schema's max_length.
+# --- Password policy (SR-01) ---
+# SR-01 mandates >= 10 chars AND at least one uppercase, one lowercase, one digit
+# and one special character. We ALSO keep the known-bad blocklist and the
+# username/email-substring checks below as defence-in-depth (a strict superset of
+# SR-01).
+MIN_PASSWORD_LENGTH = 10
+# Cap at 128 to bound Argon2 work (DoS guard) while still permitting passphrases.
+# This MUST match the router schema's max_length.
 MAX_PASSWORD_LENGTH = 128
+# Characters accepted as "special" for the SR-01 complexity check. Kept broad so
+# password managers and generated temp passwords can satisfy the rule.
+SPECIAL_CHARS = "!@#$%^&*()-_=+[]{};:,.<>?/|~`\"'\\"
 
-# Single shared hasher instance (thread-safe).
-_ph = PasswordHasher()
+# Single shared hasher instance (thread-safe). Parameters are pinned explicitly to
+# satisfy SR-02 (Argon2id, 64 MiB memory, 3 iterations, parallelism 4) instead of
+# relying on argon2-cffi's library defaults, which can change between versions.
+_ph = PasswordHasher(
+    time_cost=3,          # iterations (SR-02: >= 3)
+    memory_cost=65536,    # 64 MiB expressed in KiB (SR-02: >= 64MB)
+    parallelism=4,        # lanes (SR-02: 4)
+    hash_len=32,
+    salt_len=16,
+    type=Type.ID,         # Argon2id (SR-02)
+)
 
 # Precomputed hash of a throwaway value. We verify against this when an email
 # is not found so that "user missing" and "wrong password" take the same time,
@@ -99,17 +126,38 @@ class PasswordResetRequiredError(Exception):
         self.reset_token = reset_token
 
 
+class InvalidCurrentPasswordError(Exception):
+    """Raised when a logged-in user's supplied current password is wrong."""
+    pass
+
+
+class ResetTokenInvalidError(Exception):
+    """Raised when a password-reset token no longer matches the account state —
+    e.g. it was already used (the password changed) or the password was changed
+    by another path. Gives the stateless reset token single-use semantics."""
+    pass
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password with Argon2id."""
     return _ph.hash(password)
 
 
 def generate_temp_password(length: int = 16) -> str:
-    """Generate a cryptographically strong temporary password.
+    """Generate a cryptographically strong temporary password that satisfies the
+    SR-01 policy (length + all four character classes).
 
-    Uses secrets (CSPRNG). URL-safe alphabet avoids ambiguous shell/HTML chars.
+    Uses secrets (CSPRNG) and guarantees at least one uppercase, lowercase, digit
+    and special character so the value always passes validate_password_strength().
     """
-    return secrets.token_urlsafe(length)
+    length = max(length, MIN_PASSWORD_LENGTH)
+    pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS)
+    # One guaranteed character from each required class, then fill from the union.
+    chars = [secrets.choice(pool) for pool in pools]
+    alphabet = "".join(pools)
+    chars += [secrets.choice(alphabet) for _ in range(length - len(chars))]
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 def parse_user_id(raw: str) -> UUID:
@@ -118,13 +166,21 @@ def parse_user_id(raw: str) -> UUID:
 
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-    
-    # NIST SP 800-63B style: enforce length and block known-bad / predictable
-    # passwords rather than requiring character-class composition rules.
+
+    # SR-01: enforce length and character-class composition, then apply the
+    # defence-in-depth blocklist / identity-substring checks.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Max allowed password length is {MAX_PASSWORD_LENGTH} characters long")
+    if not any(c.isupper() for c in password):
+        raise PasswordPolicyError("Password must include at least one uppercase letter")
+    if not any(c.islower() for c in password):
+        raise PasswordPolicyError("Password must include at least one lowercase letter")
+    if not any(c.isdigit() for c in password):
+        raise PasswordPolicyError("Password must include at least one number")
+    if not any(c in SPECIAL_CHARS for c in password):
+        raise PasswordPolicyError("Password must include at least one special character")
     if password.lower() in COMMON_PASSWORDS:
         raise PasswordPolicyError("Password is too common; please choose a less predictable one")
     
@@ -145,13 +201,27 @@ def create_access_token(user_id: str, role: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_reset_token(user_id: str) -> str:
+def reset_token_fingerprint(password_hash: str) -> str:
+    """Derive a short, one-way fingerprint of the user's CURRENT password hash,
+    keyed by the server secret. Embedded in a reset token (claim ``pfp``) and
+    re-checked when the token is spent: once the password changes, the stored hash
+    changes, so the fingerprint no longer matches and the token is rejected. This
+    gives the stateless JWT single-use behaviour without any server-side denylist.
+    The raw password hash is never exposed — only this keyed digest."""
+    return hmac.new(SECRET_KEY.encode(), password_hash.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def create_reset_token(
+    user_id: str, password_hash: str, expires_minutes: int = RESET_TOKEN_EXPIRE_MINUTES
+) -> str:
     """A short-lived token authorising exactly one action: choosing a new
-    password. It carries no role and is rejected by every normal endpoint."""
+    password. It carries no role, is rejected by every normal endpoint, and is
+    bound to the current password hash so it can only be used once."""
     payload = {
         "sub": user_id,
         "scope": SCOPE_PASSWORD_RESET,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES),
+        "pfp": reset_token_fingerprint(password_hash),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -171,7 +241,8 @@ async def register(email: EmailStr, username: str, password: str, password_confi
     validate_password_strength(password, username=username, email=email)
 
     with get_db_session() as session:
-        if session.scalar(select(User).where(User.email == email)):
+        # email is encrypted at rest, so search by its blind index, not the value.
+        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
             raise ExistingUserError("email")
 
         if session.scalar(select(User).where(User.username == username)):
@@ -182,6 +253,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
         try:
             user = User(
                 email=email,
+                email_bidx=blind_index(email),
                 username=username,
                 password=hashed_password,
                 role=ROLE_STUDENT,  # self-service signup can NEVER pick its own role (privilege-escalation guard)
@@ -199,7 +271,7 @@ async def register(email: EmailStr, username: str, password: str, password_confi
 async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
     email = email.strip().lower()
     with get_db_session() as session:
-        existing_user = session.scalar(select(User).where(User.email == email))
+        existing_user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
 
         # Argon2 verify against a dummy hash so the response time matches the
         # "wrong password" path, then fail with the same generic error.
@@ -239,20 +311,79 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         must_reset = existing_user.force_password_reset
         uid = existing_user.user_id
         role = existing_user.role
+        pwd_hash = existing_user.password
 
 
     if must_reset:
-        raise PasswordResetRequiredError(create_reset_token(uid.hex))
+        raise PasswordResetRequiredError(create_reset_token(uid.hex, pwd_hash))
 
     token = create_access_token(uid.hex, role)
     return token, uid, role
 
 
-async def change_password(
-    user_id: UUID, new_password: str, new_password_confirm: str
-) -> Tuple[str, UUID, str]:
-    """Rotate the password for a user who authenticated via a reset token.
-    Clears the force-reset flag and any lockout, then issues a real session."""
+async def update_profile(
+    user_id: UUID, *, username: str | None = None, email: EmailStr | None = None
+) -> Tuple[str, EmailStr, str]:
+    """Update the username and/or email for the logged-in user.
+
+    Returns the resulting (username, email, role) after the change. Enforces the
+    same normalization and uniqueness rules as registration: email is lowercased
+    and looked up / deduplicated via its blind index (it is encrypted at rest),
+    username is trimmed and length-checked. Raises ExistingUserError on a clash
+    and UserNotFoundError if the account no longer exists.
+    """
+    if username is not None:
+        username = username.strip()
+        if not (USERNAME_MIN_LENGTH <= len(username) <= USERNAME_MAX_LENGTH):
+            raise PasswordPolicyError(
+                f"Username must be between {USERNAME_MIN_LENGTH} and {USERNAME_MAX_LENGTH} characters"
+            )
+    if email is not None:
+        email = email.strip().lower()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        if username is not None and username != user.username:
+            clash = session.scalar(
+                select(User).where(User.username == username, User.user_id != user_id)
+            )
+            if clash:
+                raise ExistingUserError("username")
+            user.username = username
+
+        if email is not None and email != user.email:
+            new_bidx = blind_index(email)
+            clash = session.scalar(
+                select(User).where(User.email_bidx == new_bidx, User.user_id != user_id)
+            )
+            if clash:
+                raise ExistingUserError("email")
+            user.email = email
+            user.email_bidx = new_bidx
+
+        try:
+            session.commit()
+            session.refresh(user)
+        except Exception:
+            raise DatabaseError()
+
+        return user.username, user.email, user.role
+
+
+async def change_password_authenticated(
+    user_id: UUID, current_password: str, new_password: str, new_password_confirm: str
+) -> None:
+    """Rotate the password for a logged-in user who proves knowledge of their
+    current password. Unlike change_password() this does NOT consume a reset
+    token — the caller is already authenticated via their session cookie.
+
+    Raises InvalidCurrentPasswordError if the current password is wrong,
+    PasswordsMismatchError if the confirmation differs, and PasswordPolicyError
+    if the new password fails the policy or matches the current one.
+    """
     if new_password != new_password_confirm:
         raise PasswordsMismatchError()
 
@@ -260,6 +391,72 @@ async def change_password(
         user = session.scalar(select(User).where(User.user_id == user_id))
         if not user:
             raise UserNotFoundError()
+
+        # Prove knowledge of the existing password before allowing a change.
+        try:
+            _ph.verify(user.password, current_password)
+        except exceptions.VerifyMismatchError:
+            raise InvalidCurrentPasswordError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        # Same policy as registration (length, blocklist, not username/email).
+        validate_password_strength(new_password, username=user.username, email=user.email)
+
+        # Forbid a no-op "change" back to the same password.
+        if current_password == new_password:
+            raise PasswordPolicyError("New password must be different from the current one")
+
+        user.password = hash_password(new_password)
+
+
+async def request_password_reset(email: EmailStr) -> Optional[Tuple[UUID, str, str, str]]:
+    """Self-service "forgot password": look up an account by email and, if it is
+    eligible to sign in, mint a one-time reset token for it.
+
+    Returns ``(user_id, reset_token, username, email)`` when a deliverable account
+    exists, or ``None`` otherwise (unknown / banned / soft-deleted). The CALLER
+    MUST return an identical generic response in both cases so the endpoint does
+    not become an account-enumeration oracle. Crucially, the user's existing
+    password is left untouched — nothing changes until they complete the reset."""
+    email = email.strip().lower()
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
+        if not user or user.is_deleted or not user.is_active:
+            return None
+        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
+        return user.user_id, token, user.username, user.email
+
+
+async def change_password(
+    user_id: UUID,
+    new_password: str,
+    new_password_confirm: str,
+    expected_fingerprint: Optional[str] = None,
+) -> Tuple[str, UUID, str]:
+    """Rotate the password for a user who authenticated via a reset token.
+    Clears the force-reset flag and any lockout, then issues a real session.
+
+    ``expected_fingerprint`` is the ``pfp`` claim carried by the reset token; it
+    must still match the stored password hash, otherwise the token has already
+    been spent (or the password changed since it was issued) and is rejected."""
+    if new_password != new_password_confirm:
+        raise PasswordsMismatchError()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        if not user.is_active or user.is_deleted:
+            raise ResetTokenInvalidError()
+
+        # Single-use guard: the token is bound to the password hash it was minted
+        # against. Reject a replayed/stale token in constant time.
+        if expected_fingerprint is not None and not hmac.compare_digest(
+            expected_fingerprint, reset_token_fingerprint(user.password)
+        ):
+            raise ResetTokenInvalidError()
 
         # Same policy as registration (length, blocklist, not username/email).
         validate_password_strength(new_password, username=user.username, email=user.email)
@@ -274,6 +471,7 @@ async def change_password(
         user.password = hash_password(new_password)
         user.force_password_reset = False
         user.auth_attempts = 0
+        user.lockout_timestamp = None
         uid = user.user_id
         role = user.role
 

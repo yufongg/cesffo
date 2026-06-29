@@ -36,7 +36,7 @@ async def test_register_function_success(mock_get_db_session):
     # Mock the context manager behavior: with get_db_session() as session
     mock_get_db_session.return_value.__enter__.side_effect = [mock_session, mock_session, mock_session]
 
-    # 2. Act: Execute function
+    # 2. Act: Execute function. register() returns (access_token, user_id, role).
     token, user_id, role = await register(
         email=  "test@finwise.com",
         username="testuser",
@@ -78,8 +78,9 @@ async def test_login_function_success(mock_get_db_session):
     mock_user.password = hashed_password
     mock_user.user_id = uuid4()
     mock_user.role = "student"
-    mock_user.is_active = True
+    # concrete values so it takes the happy path instead of tripping the guards.
     mock_user.is_deleted = False
+    mock_user.is_active = True
     mock_user.auth_attempts = 0
     mock_user.force_password_reset = False
 
@@ -87,10 +88,11 @@ async def test_login_function_success(mock_get_db_session):
     mock_session.scalar.return_value = mock_user
     mock_get_db_session.return_value.__enter__.return_value = mock_session
 
+    # login() returns (access_token, user_id, role).
     token, user_id, role = await login("test@finwise.com", "SecretPassword123!")
 
-    assert isinstance(token, str)
-    assert isinstance(user_id, UUID)
+    assert isinstance(token, str) and token  # a real JWT is issued on success
+    assert user_id == mock_user.user_id
     assert role == "student"
 
 
@@ -151,8 +153,12 @@ def test_endpoint_register_password_mismatch(mock_register_logic):
     assert response.json()["detail"] == "Passwords do not match"
 
 
+# Audit logging is patched out: the endpoint records the login to the real
+# append-only audit_log (FK -> user), but this test's user_id is a synthetic
+# uuid4() with no backing row, so a real write would hit a FK violation.
+@patch("user.auth_router._record_login_attempt")
 @patch("user.auth_router.login")
-def test_endpoint_login_success(mock_login_logic):
+def test_endpoint_login_success(mock_login_logic, mock_record_login):
     """Test HTTP 200 OK authorization handling for legitimate credentials."""
     # login() returns (access_token, user_id, role).
     mock_login_logic.return_value = ("active_jwt_string", uuid4(), "student")

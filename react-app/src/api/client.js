@@ -12,6 +12,13 @@ export function isAuthenticated() {
   return Boolean(localStorage.getItem('user_role'));
 }
 
+// Persist the non-sensitive UI hints the SPA uses to render nav/route guards.
+// The real session is the httpOnly cookie the backend set on the same response.
+export function setSession({ user_role, user_id }) {
+  localStorage.setItem('user_role', user_role);
+  localStorage.setItem('user_id', user_id);
+}
+
 export function clearSession() {
   localStorage.removeItem('user_role');
   localStorage.removeItem('user_id');

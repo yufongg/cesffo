@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from db.db import Base
+from common.encrypted_types import EncryptedString
 
 # --- USER MODEL ---
 class User(Base):
@@ -16,7 +17,11 @@ class User(Base):
     user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(String(150), nullable=False, unique=True)
     password = Column(String(255), nullable=False)
-    email = Column(String(255), nullable=False, unique=True)
+    # PII: stored AES-256-GCM encrypted (randomized), so it cannot carry the
+    # UNIQUE/lookup duties. email_bidx holds a deterministic blind index of the
+    # normalized email used for login lookups and uniqueness (see common/encryption.py).
+    email = Column(EncryptedString, nullable=False)
+    email_bidx = Column(String(64), nullable=False, unique=True, index=True)
     auth_attempts = Column(Integer, default=0, nullable=False)
     lockout_timestamp = Column(DateTime(timezone=True), nullable=True)
     role = Column(String(50), default="student", nullable=False)

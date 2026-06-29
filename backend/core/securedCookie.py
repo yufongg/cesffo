@@ -15,7 +15,7 @@ def set_auth_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         secure=COOKIE_SECURE, # False ONLY for dev
-        samesite="lax",
+        samesite="strict",  # SR-05: Strict blocks the cookie on cross-site requests (CSRF defence)
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/"
     )
@@ -29,7 +29,7 @@ def clear_auth_cookie(response: Response) -> None:
         path="/",
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite="strict",  # must mirror set_auth_cookie so the browser drops it
     )
 
 

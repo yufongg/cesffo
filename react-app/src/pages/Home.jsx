@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { setSession } from '../api/client';
+import { useRefreshAuth } from '../components/Security/RoleCheck';
 
 function CheckIcon() {
   return (
@@ -16,6 +18,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const refreshUser = useRefreshAuth();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -49,8 +52,9 @@ export default function Home() {
 
       // The session itself is the httpOnly cookie the backend just set; we only
       // keep role/id as UI hints.
-      localStorage.setItem('user_role', data.user_role);
-      localStorage.setItem('user_id', data.user_id);
+      setSession(data);
+      // Populate auth context so the destination greets the user by name.
+      if (refreshUser) await refreshUser();
 
       if (data.user_role === 'admin') {
         navigate('/admin/dashboard');
@@ -128,6 +132,10 @@ export default function Home() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="auth__alt">
+            <Link to="/forgot-password">Forgot your password?</Link>
+          </p>
 
           <p className="auth__alt">
             New to Cesffo? <Link to="/register">Create an account</Link>

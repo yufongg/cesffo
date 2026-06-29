@@ -10,6 +10,7 @@ from model.models import (
     Thread, Post,
 )
 from user.auth import hash_password
+from common.encryption import blind_index
 from common.sanitize import sanitize_html, strip_tags
 from course.instructor_router import (
     ModuleCreate, ReadingMaterialCreate, InteractiveActivityCreate, ActivityOptionInput,
@@ -491,11 +492,13 @@ COURSE_CONTENT = {
 
 # --- get-or-create helpers --------------------------------------------------
 def get_or_create_user(session, spec) -> User:
-    user = session.scalar(select(User).where(User.email == spec["email"]))
+    # email is encrypted at rest; look it up via the deterministic blind index.
+    user = session.scalar(select(User).where(User.email_bidx == blind_index(spec["email"])))
     if user:
         return user
     user = User(
         email=spec["email"],
+        email_bidx=blind_index(spec["email"]),
         username=spec["username"],
         role=spec["role"],
         password=hash_password(spec["password"]),

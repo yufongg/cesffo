@@ -1,18 +1,27 @@
 import React, { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
+import { setSession } from '../api/client';
+import { useRefreshAuth } from '../components/Security/RoleCheck';
 
 
 export default function ChangePassword() {
-  const resetToken = sessionStorage.getItem('reset_token');
+  const [searchParams] = useSearchParams();
+  // Two ways in:
+  //  - emailed one-time link  -> token in the ?token= query param (/reset-password)
+  //  - forced reset on login  -> token stashed in sessionStorage (/change-password)
+  const resetToken = searchParams.get('token') || sessionStorage.getItem('reset_token');
+  const fromEmailLink = Boolean(searchParams.get('token'));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const refreshUser = useRefreshAuth();
 
-  // No reset token means the user didn't come through the forced-reset flow.
+  // No token at all means an invalid/expired link or a direct visit — send the
+  // user to request a fresh one rather than showing a dead form.
   if (!resetToken) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/forgot-password" replace />;
   }
 
   async function handleSubmit(e) {
@@ -43,7 +52,10 @@ export default function ChangePassword() {
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
           sessionStorage.removeItem('reset_token');
-          setError('Your reset link expired. Please sign in again.');
+          setError(
+            (typeof data?.detail === 'string' && data.detail) ||
+              'This reset link is invalid or has expired. Please request a new one.'
+          );
           return;
         }
         const detail =
@@ -56,8 +68,9 @@ export default function ChangePassword() {
 
       sessionStorage.removeItem('reset_token');
       // Reset succeeded — the backend issued a real session cookie; keep hints.
-      localStorage.setItem('user_role', data.user_role);
-      localStorage.setItem('user_id', data.user_id);
+      setSession(data);
+      // Load the profile into context so the landing page greets by name.
+      if (refreshUser) await refreshUser();
 
       navigate(data.user_role === 'admin' ? '/admin/dashboard' : '/courses');
     } catch {
@@ -74,7 +87,9 @@ export default function ChangePassword() {
           <span className="eyebrow">Security</span>
           <h1>Choose a new password</h1>
           <p className="subtitle">
-            Your account is using a temporary password. Set a new one to continue.
+            {fromEmailLink
+              ? 'Set a new password for your account to finish resetting it.'
+              : 'Your account is using a temporary password. Set a new one to continue.'}
           </p>
         </div>
 
@@ -95,8 +110,8 @@ export default function ChangePassword() {
                   autoFocus
                 />
                 <small className="field__hint">
-                  At least 8 characters. Avoid common passwords or your own
-                  name/email.
+                  At least 10 characters with an uppercase, lowercase, number and
+                  special character. Avoid common passwords or your own name/email.
                 </small>
               </div>
 
