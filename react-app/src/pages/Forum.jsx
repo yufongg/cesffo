@@ -3,6 +3,7 @@ import ForumCategoryNav from '../components/forum/ForumCategoryNav';
 import ThreadList from '../components/forum/ThreadList';
 import ThreadDetail from '../components/forum/ThreadDetail';
 import ThreadComposer from '../components/forum/ThreadComposer';
+import ReportModal from "../components/forum/ReportModal";
 import {
   listCategories,
   listPosts,
@@ -14,12 +15,21 @@ import {
   addPostAttachments,
   deletePostAttachment,
   forumWsUrl,
+  likeThread,
+  unlikeThread,
+  listLikedThreads,
+  getLastViewedThread,
+  markLastViewedThread,
+  reportThread,
+  reportPost,
+  listMyReports
 } from '../services/forumApi';
 
 const norm = (value) => (value ? value.replaceAll('-', '').toLowerCase() : '');
 
 export default function Forum() {
   const [categories, setCategories] = useState([]);
+  const [lastViewedThread, setLastViewedThread] = useState(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [selectedThreadId, setSelectedThreadId] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -32,10 +42,33 @@ export default function Forum() {
   const currentUserId = norm(localStorage.getItem('user_id'));
   const isAdmin = localStorage.getItem('user_role') === 'admin';
 
+  const [threadView, setThreadView] = useState("all");
+  const [likedThreads, setLikedThreads] = useState([]);
+  const [lastViewedThreads, setLastViewedThreads] = useState([]);
+  const [reportTarget, setReportTarget] = useState(null);
+  const [myReports, setMyReports] = useState([]);
+  
+
   const selectedCategory = useMemo(
     () => categories.find((c) => c.category_id === selectedCategoryId) || null,
     [categories, selectedCategoryId],
   );
+
+  const displayThreads = useMemo(() => {
+
+      if (threadView === "liked") {
+          return likedThreads.filter(
+              thread => thread.category_id === selectedCategory?.category_id
+          );
+      }
+
+      return selectedCategory?.threads || [];
+
+  }, [
+      threadView,
+      likedThreads,
+      selectedCategory,
+  ]);
 
   const selectedThread = useMemo(() => {
     if (!selectedThreadId) return null;
@@ -69,6 +102,7 @@ export default function Forum() {
 
   const loadCategories = useCallback(async () => {
     const data = await listCategories();
+    console.log(data);
     setCategories(data || []);
     setSelectedCategoryId((current) => {
       if (current && (data || []).some((c) => c.category_id === current)) return current;
@@ -96,6 +130,20 @@ export default function Forum() {
   useEffect(() => {
     loadCategories().catch((e) => flashError(e.message));
   }, [loadCategories, flashError]);
+
+
+  useEffect(() => {
+  async function loadLastViewed() {
+    try {
+      const thread = await getLastViewedThread();
+      setLastViewedThread(thread);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  loadLastViewed();
+}, []);
 
   // Live updates: reload the category tree on any forum event, and the open
   // thread's posts when it's the one that changed.
@@ -174,12 +222,84 @@ export default function Forum() {
     setViewMode('list');
   }
 
-  function openThread(threadId) {
-    const id = norm(threadId);
-    setSelectedThreadId(id);
-    setViewMode('detail');
-    loadPosts(id).catch((e) => flashError(e.message));
+async function openThread(threadId) {
+  try {
+    await markLastViewedThread({thread_id: threadId,});
+    setLastViewedThread(threadId);
+  } catch (e) {
+    console.error(e);
   }
+
+  const id = norm(threadId);
+
+  setSelectedThreadId(id);
+  setViewMode('detail');
+
+  loadPosts(id).catch((e) => flashError(e.message));
+}
+
+async function handleLikeThread() {
+  if (!selectedThread) return;
+
+  try {
+    let result;
+
+    if (selectedThread.is_liked) {
+      result = await unlikeThread(selectedThread.thread_id);
+    } else {
+      result = await likeThread(selectedThread.thread_id);
+    }
+
+    flashStatus(
+      result.liked
+        ? 'Thread liked.'
+        : 'Thread unliked.'
+    );
+
+    await loadCategories();
+  } catch (e) {
+    flashError(e.message);
+  }
+}
+
+async function submitReport(reason, description) {
+    if (!reportTarget) return;
+
+    try {
+        if (reportTarget.type === "thread") {
+            await reportThread(
+                reportTarget.id,
+                reason,
+                description,
+            );
+        } else {
+            await reportPost(
+                reportTarget.id,
+                reason,
+                description,
+            );
+        }
+
+        flashStatus("Report submitted.");
+        setReportTarget(null);
+
+    } catch (e) {
+        flashError(e.message);
+    }
+}
+
+async function handleThreadViewChange(view) {
+  setThreadView(view);
+
+  try {
+    if (view === "liked") {
+      const data = await listLikedThreads();
+      setLikedThreads(data);
+    }
+  } catch (e) {
+    flashError(e.message);
+  }
+}
 
   function backToList() {
     setSelectedThreadId(null);
@@ -293,6 +413,10 @@ export default function Forum() {
     });
   }
 
+  console.log("Categories:", categories);
+  console.log("Display threads:", displayThreads);
+  console.log("Thread view:", threadView);
+
   return (
     <div className="page">
       <div className="container">
@@ -313,10 +437,16 @@ export default function Forum() {
 
         {viewMode === 'list' && (
           <ThreadList
-            category={selectedCategory}
+            title={selectedCategory?.name}
+            description={selectedCategory?.description}
+            threads={displayThreads}
+            selectedThreadId={selectedThreadId}
+            lastViewedThread={lastViewedThread}
             onOpenThread={openThread}
             onStartThread={() => setViewMode('create')}
-          />
+            threadView={threadView}
+            onThreadViewChange={handleThreadViewChange}
+        />
         )}
 
         {viewMode === 'create' && (
@@ -367,7 +497,20 @@ export default function Forum() {
               onDeleteAttachment={handleDeleteAttachment}
               onReply={handleReply}
               onDeletePost={handleDeletePost}
-            />
+              onLike={handleLikeThread}
+              onReportThread={() =>
+                  setReportTarget({
+                      type: "thread",
+                      id: selectedThread.thread_id,
+                  })
+              }
+              onReportReply={(reply) =>
+                  setReportTarget({
+                      type: "post",
+                      id: reply.post_id,
+                  })
+              }
+          />
           </>
         )}
         {confirmDialog && (
@@ -401,6 +544,14 @@ export default function Forum() {
           </div>
         )}
       </div>
+
+      <ReportModal
+          open={!!reportTarget}
+          type={reportTarget?.type}
+          onClose={() => setReportTarget(null)}
+          onSubmit={submitReport}
+      />
+
       {notificationToast && (
         <div className="notification-toast">
           🔔 {notificationToast}

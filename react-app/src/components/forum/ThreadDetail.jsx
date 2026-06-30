@@ -43,6 +43,9 @@ export default function ThreadDetail({
   onDeleteAttachment,
   onReply,
   onDeletePost,
+  onLike,
+  onReportThread,
+  onReportReply,
 }) {
   if (!thread) {
     return <p className="empty-state">Select a thread to read it.</p>;
@@ -60,16 +63,46 @@ export default function ThreadDetail({
     <>
       <article className="card forum-thread">
         <div className="card__body">
-          <div className="forum-thread__head">
+         <div className="forum-thread__head">
+          <div>
             <h1>{thread.title}</h1>
+
             <div className="forum-thread__meta">
               <span>
                 By {originalPost.creator_name || thread.creator_name || 'Unknown user'} on {formatDate(stamp)}
               </span>
-              {originalPost.is_edited && <span className="tag">Edited</span>}
-              {thread.is_locked && <span className="tag">Locked</span>}
+
+              {originalPost.is_edited && (
+                <span className="tag">Edited</span>
+              )}
+
+              {thread.is_locked && (
+                <span className="tag">Locked</span>
+              )}
             </div>
           </div>
+
+          <div className="forum-thread__actions">
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={onLike}
+          >
+            {thread.is_liked ? '❤️ Liked' : '🤍 Like'}
+          </button>
+
+          {!canManage && (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              onClick={onReportThread}
+            >
+              🚩 Report
+            </button>
+          )}
+
+        </div>
+        </div>
 
           <SafeHtml className="forum-thread__content" html={originalPost.content} />
 
@@ -118,17 +151,29 @@ export default function ThreadDetail({
                   onDeleteAttachment={onDeleteAttachment}
                 />
 
-                {mine && (
-                  <div className="forum-thread__actions">
-                    <button
-                      type="button"
-                      className="btn btn--danger btn--sm"
-                      onClick={() => onDeletePost(reply.post_id)}
-                    >
-                      Delete reply
-                    </button>
-                  </div>
+                <div className="forum-thread__actions">
+
+                {!mine && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--sm"
+                    onClick={() => onReportReply(reply)}
+                  >
+                    🚩 Report
+                  </button>
                 )}
+
+                {mine && (
+                  <button
+                    type="button"
+                    className="btn btn--danger btn--sm"
+                    onClick={() => onDeletePost(reply.post_id)}
+                  >
+                    Delete reply
+                  </button>
+                )}
+
+              </div>
               </div>
             </article>
           );

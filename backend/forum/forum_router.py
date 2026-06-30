@@ -11,9 +11,10 @@ from fastapi import (
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from fastapi import Header
 
 from db.db import get_db_session
-from model.models import Category, Notification, Post, PostAttachment, Thread, User
+from model.models import Category, Notification, Post, PostAttachment, Thread, User,ThreadLike, Report
 from user.auth import ROLE_ADMIN, SCOPE_ACCESS, decode_access_token
 from user.auth_router import get_current_user
 from common.audit import log_action
@@ -27,6 +28,10 @@ from .schemas import (
     ThreadResponse,
     UpdatePostRequest,
     UpdateThreadRequest,
+    CreatePostRequest,
+    CreateReportRequest,
+    ReportResponse,
+    UserReportResponse
 )
 from .utils import (
     notification_to_response,
@@ -73,11 +78,16 @@ def get_original_post(session, thread_id: uuid.UUID) -> Optional[Post]:
 
 # --- Read endpoints (auth required, consistent with the rest of the app) -----
 @router.get("/categories", response_model=List[CategoryResponse])
-async def list_categories(current_user: dict = Depends(get_current_user)) -> List[CategoryResponse]:
+async def list_categories(
+    current_user: dict = Depends(get_current_user),
+) -> List[CategoryResponse]:
     with get_db_session() as session:
+        uid = _parse_uid(current_user)
+        
         categories = session.scalars(
             select(Category)
-            .options(selectinload(Category.threads).selectinload(Thread.posts))
+            .options(selectinload(Category.threads).selectinload(Thread.posts),
+                     selectinload(Category.threads).selectinload(Thread.likes),)
             .order_by(Category.display_order, Category.name)
         ).all()
 
@@ -90,7 +100,15 @@ async def list_categories(current_user: dict = Depends(get_current_user)) -> Lis
                 display_order=category.display_order,
                 created_at=category.created_at,
                 threads=[
-                    thread_to_response(thread, session)
+                    thread_to_response(
+                        thread,
+                        session,
+                        like_count=len(thread.likes),
+                        is_liked=any(
+                            like.user_id == uid
+                            for like in thread.likes
+                        ),
+                    )
                     for thread in sorted(
                         category.threads,
                         key=lambda item: item.updated_at or item.created_at,
@@ -114,8 +132,11 @@ async def list_thread_posts(
 
         posts = session.scalars(
             select(Post)
-            .where(Post.thread_id == thread_id, Post.parent_id.is_(None))
-            .options(selectinload(Post.attachments))
+            .where(Post.thread_id == thread_id)
+            .options(
+                selectinload(Post.attachments),
+                selectinload(Post.child_posts)
+            )
             .order_by(Post.created_at.asc())
         ).all()
 
@@ -269,6 +290,7 @@ async def create_post(
     request: Request,
     thread_id: uuid.UUID,
     content: str = Form(..., min_length=1, max_length=MAX_CONTENT_LEN),
+    parent_id: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(default=None),
     current_user: dict = Depends(get_current_user),
 ) -> PostResponse:
@@ -280,12 +302,34 @@ async def create_post(
         if thread.is_locked:
             raise HTTPException(status_code=403, detail="Thread is locked")
 
+        parent_uuid = None
+
+        if parent_id:
+                parent_uuid = UUID(parent_id)
+
+                parent_post = session.get(Post, parent_uuid)
+
+                if not parent_post:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Parent post not found"
+                    )
+
+                # Prevent replying to a reply (max depth = 1)
+                if parent_post.parent_id is not None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot reply to a reply"
+                    )
+
+            # Existing post creation
         post = Post(
-            thread_id=thread.thread_id,
-            creator_id=uid,
-            parent_id=None,
-            content=sanitize_content(content),
-        )
+                thread_id=thread.thread_id,
+                creator_id=uid,
+                parent_id=parent_uuid,
+                content=sanitize_content(content),
+            )
+
         session.add(post)
         session.flush()
 
@@ -452,6 +496,14 @@ async def delete_post(
         _require_owner_or_admin(post.creator_id, current_user)
 
         thread_id = post.thread_id.hex
+        children = session.scalars(
+            select(Post)
+            .where(Post.parent_id == post.post_id)
+        ).all()
+
+        for child in children:
+            session.delete(child)
+
         session.delete(post)
         log_action(
             session, user_id=_parse_uid(current_user), action="delete_post",
@@ -497,8 +549,357 @@ async def update_notification(
         notification.is_read = request.is_read
         session.flush()
         return notification_to_response(notification)
+    
+# --- Like Threads ---------------------------
+@router.post("/threads/{thread_id}/like")
+@limiter.limit("30/minute")
+async def like_thread(
+    request: Request,
+    thread_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
 
+    with get_db_session() as session:
+        existing = session.scalar(
+            select(ThreadLike).where(
+                ThreadLike.user_id == uid,
+                ThreadLike.thread_id == thread_id,
+            )
+        )
 
+        if existing:
+            return {
+                "liked": True,
+                "message": "already liked",
+            }
+
+        like = ThreadLike(
+            user_id=uid,
+            thread_id=thread_id,
+        )
+
+        session.add(like)
+        session.commit()
+
+        return {
+            "liked": True,
+            "message": "liked",
+        }
+    
+@router.delete("/threads/{thread_id}/like")
+@limiter.limit("30/minute")
+async def unlike_thread(
+    request: Request,
+    thread_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+        existing = session.scalar(
+            select(ThreadLike).where(
+                ThreadLike.user_id == uid,
+                ThreadLike.thread_id == thread_id,
+            )
+        )
+
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail="Thread is not liked",
+            )
+
+        session.delete(existing)
+        session.commit()
+
+        return {
+            "liked": False,
+            "message": "unliked",
+        }
+
+# --- Filter Liked Threads ---------------------------
+@router.get("/users/liked-threads", response_model=List[ThreadResponse])
+async def list_liked_threads(
+    current_user: dict = Depends(get_current_user),
+) -> List[ThreadResponse]:
+
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+
+        threads = session.scalars(
+            select(Thread)
+            .join(ThreadLike, Thread.thread_id == ThreadLike.thread_id)
+            .where(ThreadLike.user_id == uid)
+            .options(
+                selectinload(Thread.posts),
+                selectinload(Thread.likes),
+            )
+            .order_by(Thread.updated_at.desc())
+        ).all()
+
+        return [
+            thread_to_response(
+                thread,
+                session,
+                like_count=len(thread.likes),
+                is_liked=True,
+            )
+            for thread in threads
+        ]
+    
+# --- Last Viewed Thread ---------------------------
+@router.post("/threads/{thread_id}/view")
+@limiter.limit("60/minute")
+async def mark_thread_viewed(
+    request: Request,
+    thread_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+):
+    with get_db_session() as session:
+
+        user = session.get(
+            User,
+            _parse_uid(current_user)
+        )
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.last_viewed_thread_id = thread_id
+        user.last_viewed_at = datetime.now(timezone.utc)
+
+        session.commit()
+
+        return {
+            "success": True
+        }
+    
+@router.get("/users/last-viewed")
+@limiter.limit("60/minute")
+async def get_last_viewed_thread(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    with get_db_session() as session:
+        user = session.get(
+            User,
+            _parse_uid(current_user)
+        )
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user.last_viewed_thread_id:
+            return None
+
+        thread = session.get(
+            Thread,
+            user.last_viewed_thread_id
+        )
+
+        if not thread:
+            return None
+
+        return {
+            "thread_id": thread.thread_id.hex,
+            "title": thread.title,
+            "viewed_at": user.last_viewed_at,
+        }
+
+# --- Reporting Thread/Post ---------------------------
+@router.post(
+    "/threads/{thread_id}/report",
+    response_model=ReportResponse,
+)
+@limiter.limit("10/minute")
+async def report_thread(
+    request: Request,
+    thread_id: uuid.UUID,
+    payload: CreateReportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+
+        thread = session.get(Thread, thread_id)
+
+        if not thread:
+            raise HTTPException(
+                status_code=404,
+                detail="Thread not found",
+            )
+
+        if thread.creator_id == uid:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot report your own thread.",
+            )
+
+        existing = session.scalar(
+            select(Report).where(
+                Report.reporter_id == uid,
+                Report.thread_id == thread_id,
+                Report.status == "Pending",
+            )
+        )
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="You have already reported this thread.",
+            )
+
+        report = Report(
+            reporter_id=uid,
+            thread_id=thread_id,
+            reason=payload.reason,
+            description=payload.description,
+        )
+
+        session.add(report)
+        session.commit()
+        session.refresh(report)
+
+        return ReportResponse(
+            report_id=report.report_id.hex,
+            reporter_id=report.reporter_id.hex,
+            thread_id=report.thread_id.hex,
+            post_id=None,
+            reason=report.reason,
+            description=report.description,
+            status=report.status,
+            created_at=report.created_at,
+        )
+
+@router.post(
+    "/posts/{post_id}/report",
+    response_model=ReportResponse,
+)
+@limiter.limit("10/minute")
+async def report_post(
+    request: Request,
+    post_id: uuid.UUID,
+    payload: CreateReportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+
+        post = session.get(Post, post_id)
+
+        if not post:
+            raise HTTPException(
+                status_code=404,
+                detail="Reply not found",
+            )
+
+        if post.creator_id == uid:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot report your own reply.",
+            )
+
+        existing = session.scalar(
+            select(Report).where(
+                Report.reporter_id == uid,
+                Report.post_id == post_id,
+                Report.status == "Pending",
+            )
+        )
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="You have already reported this reply.",
+            )
+
+        report = Report(
+            reporter_id=uid,
+            post_id=post_id,
+            reason=payload.reason,
+            description=payload.description,
+        )
+
+        session.add(report)
+        session.commit()
+        session.refresh(report)
+
+        return ReportResponse(
+            report_id=report.report_id.hex,
+            reporter_id=report.reporter_id.hex,
+            thread_id=None,
+            post_id=report.post_id.hex,
+            reason=report.reason,
+            description=report.description,
+            status=report.status,
+            created_at=report.created_at,
+        )
+    
+@router.get(
+    "/users/reports",
+    response_model=List[UserReportResponse],
+)
+async def list_my_reports(
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+
+        reports = session.scalars(
+            select(Report)
+            .where(Report.reporter_id == uid)
+            .order_by(Report.created_at.desc())
+        ).all()
+
+        results = []
+
+        for report in reports:
+
+            if report.thread_id:
+                thread = session.get(Thread, report.thread_id)
+
+                results.append(
+                    UserReportResponse(
+                        report_id=report.report_id.hex,
+                        type="thread",
+                        title=thread.title if thread else "(Deleted thread)",
+                        reason=report.reason,
+                        status=report.status,
+                        created_at=report.created_at,
+                        thread_id=thread.thread_id.hex if thread else None,
+                        category_id=thread.category_id.hex if thread else None,
+                    )
+                )
+
+            elif report.post_id:
+
+                post = session.get(Post, report.post_id)
+
+                thread = (
+                    session.get(Thread, post.thread_id)
+                    if post
+                    else None
+                )
+
+                results.append(
+                    UserReportResponse(
+                        report_id=report.report_id.hex,
+                        type="reply",
+                        title=thread.title if thread else "(Deleted thread)",
+                        reason=report.reason,
+                        status=report.status,
+                        created_at=report.created_at,
+                        thread_id=thread.thread_id.hex if thread else None,
+                        category_id=thread.category_id.hex if thread else None,
+                    )
+                )
+
+        return results
 # --- WebSocket (token-authenticated live updates) ---------------------------
 def _authenticate_ws_token(token: Optional[str]) -> bool:
     """Validate the JWT taken from the session cookie on the WS handshake.

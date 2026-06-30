@@ -12,6 +12,9 @@ class AttachmentResponse(BaseModel):
     file_size: Optional[int] = None
     uploaded_at: datetime
 
+class CreatePostRequest(BaseModel):
+    content: str
+    parent_id: Optional[str] = None
 
 class PostResponse(BaseModel):
     post_id: str
@@ -37,6 +40,8 @@ class ThreadResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     post_count: int
+    like_count: int = 0
+    is_liked: bool = False
 
 
 class CategoryResponse(BaseModel):
@@ -72,3 +77,39 @@ class UpdateThreadRequest(BaseModel):
 
 class MarkNotificationReadRequest(BaseModel):
     is_read: bool = True
+
+
+class ThreadLikeResponse(BaseModel):
+    thread_id: str
+    user_id: str
+    created_at: datetime
+
+class CreateReportRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=1000)
+
+class ReportResponse(BaseModel):
+    report_id: str
+    reporter_id: str
+    thread_id: Optional[str] = None
+    post_id: Optional[str] = None
+    reason: str
+    description: Optional[str] = None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserReportResponse(BaseModel):
+    report_id: str
+    type: str
+    title: str
+    reason: str
+    status: str
+    created_at: datetime
+    thread_id: Optional[str] = None
+    category_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
