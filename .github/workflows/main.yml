@@ -113,6 +113,6 @@ jobs:
         script: |
           set -e
           cd ~/cesffo
-          git pull origin feature/prod-ec2
+          git pull origin main
           docker compose -f docker-compose.yml up -d --build
           docker image prune -f
