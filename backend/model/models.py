@@ -77,6 +77,7 @@ class Thread(Base):
     category = relationship("Category", back_populates="threads")
     posts = relationship("Post", back_populates="thread", cascade="all, delete-orphan")
     likes = relationship("ThreadLike", back_populates="thread", cascade="all, delete-orphan")
+    is_deleted = Column(Boolean, nullable=False, default=False,)
 
 
 # --- POST MODEL ---
@@ -105,6 +106,7 @@ class Post(Base):
 
     attachments = relationship("PostAttachment", back_populates="post", cascade="all, delete-orphan")
     reports = relationship("PostReport", back_populates="post", cascade="all, delete-orphan")
+    is_deleted = Column(Boolean, nullable=False, default=False,)
 
 # --- POST LIKES MODEL ---
 class ThreadLike(Base):

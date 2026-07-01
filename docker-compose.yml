@@ -63,7 +63,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
       POSTGRES_USER: postgres # A user for the database
-      POSTGRES_PASSWORD: ${POSTGRES_SECRET} # Password for the user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
       APP_USER: ${POSTGRES_USER}
       APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:

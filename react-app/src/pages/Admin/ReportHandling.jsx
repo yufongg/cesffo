@@ -1,22 +1,35 @@
 import { useEffect, useState } from "react";
-import { listAdminReports } from "../../services/forumApi";
+import { listAdminReports, resolveReport, removeReportedContent, } from "../../services/forumApi";
 
 export default function ReportHandling() {
   const [reports, setReports] = useState([]);
+  const [reportFilter, setReportFilter] = useState("Pending");
   const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     loadReports();
-  }, []);
+    }, [reportFilter]);
 
   async function loadReports() {
     try {
-      const data = await listAdminReports();
+      const data = await listAdminReports(reportFilter);
       setReports(data);
     } catch (err) {
       console.error(err);
     }
   }
+
+  async function handleResolve(group) {
+  await resolveReport(group.reports[0].report_id);
+  loadReports();
+}
+
+  async function handleRemove(group) {
+  if (!window.confirm("Remove this content?")) return;
+
+  await removeReportedContent(group.reports[0].report_id);
+  loadReports();
+}
 
   return (
     <div className="page">
@@ -28,6 +41,27 @@ export default function ReportHandling() {
             Review and moderate reports submitted by users.
           </p>
         </div>
+
+        <div className="forum-toolbar">
+        <button
+            className={`btn ${
+                reportFilter === "Pending"
+                    ? "btn--primary"
+                    : "btn--secondary"
+            }`}
+            onClick={() => setReportFilter("Pending")}
+        >Pending
+        </button>
+        <button
+            className={`btn ${
+                reportFilter === "Resolved"
+                    ? "btn--primary"
+                    : "btn--secondary"
+            }`}
+            onClick={() => setReportFilter("Resolved")}
+        >Resolved
+        </button>
+    </div>
 
         <div className="report-admin-list">
           {reports.map((group) => {
@@ -112,9 +146,16 @@ export default function ReportHandling() {
 
                   <div className="report-footer">
                     <div className="row-actions">
-                      <button className="btn btn--secondary btn--sm">Reject</button>
-                      <button className="btn btn--secondary btn--sm">Resolve</button>
-                      <button className="btn btn--danger btn--sm">Remove Content</button>
+                      <button
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => handleResolve(group)}
+                    >Resolve
+                    </button>
+                    <button
+                        className="btn btn--danger btn--sm"
+                        onClick={() => handleRemove(group)}
+                    >Remove Content
+                    </button>
                     </div>
                   </div>
                 </div>

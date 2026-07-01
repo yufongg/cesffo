@@ -2858,7 +2858,7 @@
     grid-template-columns:2fr 1.5fr 180px;
     gap:28px;
     align-items:start;
-    background:#fff;
+    background:var(--color-surface);
     border:1px solid #e5e7eb;
     border-radius:16px;
     padding:22px;
@@ -2894,7 +2894,6 @@
 }
 
 .report-status{
-
     padding:7px 14px;
     border-radius:999px;
     font-size:.85rem;
@@ -2902,8 +2901,8 @@
 }
 
 .report-status.pending{
-    background:#FFF4D4;
-    color:#996C00;
+    background:#FEF3C7;
+    color:#B45309;
 }
 
 .report-status.reviewed{
@@ -2917,8 +2916,8 @@
 }
 
 .report-status.resolved{
-    background:#E8F0FF;
-    color:#1E5ACC;
+    background:#DCFCE7;
+    color:#166534;
 }
 
 .report-card__right small{
@@ -3148,4 +3147,10 @@
     color: #8a6720;
     font-weight: 700;
     flex-shrink: 0;
+}
+
+.forum-toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
 }

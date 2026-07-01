@@ -201,16 +201,14 @@ export function listMyThreads() {
 /* Admin Report Handling                                                      */
 /* -------------------------------------------------------------------------- */
 
-export function listAdminReports() {
-    return apiFetch("/api/v1/admin/reports");
+export function listAdminReports(status = "Pending") {
+    return apiFetch(`/api/v1/admin/reports?status=${status}`);
 }
 
-export function updateReportStatus(reportId, status) {
+export function resolveReport(reportId) {
     return apiFetch(`/api/v1/admin/reports/${reportId}`, {
         method: "PATCH",
-        body: {
-            status,
-        },
+        body: {status: "Resolved",},
     });
 }
 

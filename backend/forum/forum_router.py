@@ -110,7 +110,10 @@ async def list_categories(
                         ),
                     )
                     for thread in sorted(
-                        category.threads,
+                        [
+                            t for t in category.threads
+                            if not t.is_deleted
+                        ],
                         key=lambda item: item.updated_at or item.created_at,
                         reverse=True,
                     )
@@ -127,12 +130,15 @@ async def list_thread_posts(
 ) -> List[PostResponse]:
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
-        if not thread:
+        if not thread or thread.is_deleted:
             raise HTTPException(status_code=404, detail="Thread not found")
 
         posts = session.scalars(
             select(Post)
-            .where(Post.thread_id == thread_id)
+            .where(
+                Post.thread_id == thread_id,
+                Post.is_deleted.is_(False),
+            )
             .options(
                 selectinload(Post.attachments),
                 selectinload(Post.child_posts)
@@ -218,7 +224,10 @@ async def update_thread(
     with get_db_session() as session:
         thread = session.scalar(
             select(Thread)
-            .where(Thread.thread_id == thread_id)
+            .where(
+                Thread.thread_id == thread_id,
+                Thread.is_deleted.is_(False),
+            )
             .options(selectinload(Thread.posts).selectinload(Post.attachments))
         )
         if not thread:
@@ -264,8 +273,12 @@ async def delete_thread(
     current_user: dict = Depends(get_current_user),
 ) -> None:
     with get_db_session() as session:
-        thread = session.get(Thread, thread_id)
-        if not thread:
+        thread = session.scalar(
+    select(Thread).where(
+        Thread.thread_id == thread_id,
+    )
+)
+        if not thread or thread.is_deleted:
             raise HTTPException(status_code=404, detail="Thread not found")
 
         _require_owner_or_admin(thread.creator_id, current_user)
@@ -297,7 +310,7 @@ async def create_post(
     uid = _parse_uid(current_user)
     with get_db_session() as session:
         thread = session.get(Thread, thread_id)
-        if not thread:
+        if not thread or thread.is_deleted:
             raise HTTPException(status_code=404, detail="Thread not found")
         if thread.is_locked:
             raise HTTPException(status_code=403, detail="Thread is locked")
@@ -309,7 +322,7 @@ async def create_post(
 
                 parent_post = session.get(Post, parent_uuid)
 
-                if not parent_post:
+                if not parent_post or parent_post.is_deleted:
                     raise HTTPException(
                         status_code=404,
                         detail="Parent post not found"
@@ -387,7 +400,10 @@ async def update_post(
     with get_db_session() as session:
         post = session.scalar(
             select(Post)
-            .where(Post.post_id == post_id)
+            .where(
+                Post.post_id == post_id,
+                Post.is_deleted.is_(False),
+            )
             .options(selectinload(Post.attachments))
         )
         if not post:
@@ -421,7 +437,10 @@ async def add_post_attachments(
     with get_db_session() as session:
         post = session.scalar(
             select(Post)
-            .where(Post.post_id == post_id)
+            .where(
+    Post.post_id == post_id,
+    Post.is_deleted.is_(False),
+)
             .options(selectinload(Post.attachments))
         )
         if not post:
@@ -470,7 +489,10 @@ async def delete_post_attachment(
 
         updated_post = session.scalar(
             select(Post)
-            .where(Post.post_id == post_id)
+            .where(
+    Post.post_id == post_id,
+    Post.is_deleted.is_(False),
+)
             .options(selectinload(Post.attachments))
         )
         response = post_to_response(updated_post)
@@ -489,7 +511,12 @@ async def delete_post(
     current_user: dict = Depends(get_current_user),
 ) -> None:
     with get_db_session() as session:
-        post = session.get(Post, post_id)
+        post = session.scalar(
+    select(Post).where(
+        Post.post_id == post_id,
+        Post.is_deleted.is_(False),
+    )
+)
         if not post:
             raise HTTPException(status_code=404, detail="Post not found")
 
@@ -498,7 +525,10 @@ async def delete_post(
         thread_id = post.thread_id.hex
         children = session.scalars(
             select(Post)
-            .where(Post.parent_id == post.post_id)
+            .where(
+                Post.parent_id == post.post_id,
+                Post.is_deleted.is_(False),
+            )
         ).all()
 
         for child in children:
@@ -561,6 +591,13 @@ async def like_thread(
     uid = _parse_uid(current_user)
 
     with get_db_session() as session:
+        thread = session.get(Thread, thread_id)
+
+        if not thread or thread.is_deleted:
+            raise HTTPException(
+                status_code=404,
+                detail="Thread not found",
+            )
         existing = session.scalar(
             select(ThreadLike).where(
                 ThreadLike.user_id == uid,
@@ -597,6 +634,13 @@ async def unlike_thread(
     uid = _parse_uid(current_user)
 
     with get_db_session() as session:
+        thread = session.get(Thread, thread_id)
+
+        if not thread or thread.is_deleted:
+            raise HTTPException(
+                status_code=404,
+                detail="Thread not found",
+            )
         existing = session.scalar(
             select(ThreadLike).where(
                 ThreadLike.user_id == uid,
@@ -630,6 +674,7 @@ async def list_liked_threads(
 
         threads = session.scalars(
             select(Thread)
+            .where(Thread.is_deleted.is_(False))
             .join(ThreadLike, Thread.thread_id == ThreadLike.thread_id)
             .where(ThreadLike.user_id == uid)
             .options(
@@ -667,6 +712,13 @@ async def mark_thread_viewed(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        thread = session.get(Thread, thread_id)
+
+        if not thread or thread.is_deleted:
+            raise HTTPException(
+                status_code=404,
+                detail="Thread not found",
+            )
         user.last_viewed_thread_id = thread_id
         user.last_viewed_at = datetime.now(timezone.utc)
 
@@ -699,7 +751,7 @@ async def get_last_viewed_thread(
             user.last_viewed_thread_id
         )
 
-        if not thread:
+        if not thread or thread.is_deleted:
             return None
 
         return {
@@ -726,7 +778,7 @@ async def report_thread(
 
         thread = session.get(Thread, thread_id)
 
-        if not thread:
+        if not thread or thread.is_deleted:
             raise HTTPException(
                 status_code=404,
                 detail="Thread not found",
@@ -791,7 +843,7 @@ async def report_post(
 
         post = session.get(Post, post_id)
 
-        if not post:
+        if not post or post.is_deleted:
             raise HTTPException(
                 status_code=404,
                 detail="Reply not found",
@@ -882,11 +934,14 @@ async def list_my_reports(
                         title=thread.title if thread else "(Deleted thread)",
 
                         reported_content=(
-                            original_post.content
-                            if original_post
-                            else None
+                            "Content removed by moderator."
+                            if thread and thread.is_deleted
+                            else (
+                                original_post.content
+                                if original_post
+                                else None
+                            )
                         ),
-
                         reason=report.reason,
                         description=report.description,
                         status=report.status,
@@ -914,11 +969,14 @@ async def list_my_reports(
                         title=thread.title if thread else "(Deleted thread)",
 
                         reported_content=(
-                            post.content
-                            if post
-                            else None
+                            "Content removed by moderator."
+                            if post and post.is_deleted
+                            else (
+                                post.content
+                                if post
+                                else None
+                            )
                         ),
-
                         reason=report.reason,
                         description=report.description,
                         status=report.status,
@@ -945,7 +1003,10 @@ async def list_my_threads(
 
         threads = session.scalars(
             select(Thread)
-            .where(Thread.creator_id == uid)
+            .where(
+                Thread.creator_id == uid,
+                Thread.is_deleted.is_(False),
+            )
             .options(
                 selectinload(Thread.posts),
                 selectinload(Thread.likes),

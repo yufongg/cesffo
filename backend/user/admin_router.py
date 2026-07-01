@@ -243,11 +243,14 @@ async def reset_password(request: Request, user_id: str, admin: dict = Depends(r
     response_model=List[ReportGroupResponse],
 )
 async def list_reports(
+    status: str = "Pending",
     admin: dict = Depends(require_admin),
 ):
     with get_db_session() as session:
         reports = session.scalars(
-            select(Report).order_by(Report.created_at.desc())
+            select(Report)
+            .where(Report.status == status)
+            .order_by(Report.created_at.desc())
         ).all()
 
         grouped = {}
@@ -277,9 +280,13 @@ async def list_reports(
                         "type": "Thread",
                         "title": thread.title if thread else "(Deleted Thread)",
                         "reported_content": (
-                            original_post.content
-                            if original_post
-                            else None
+                            "Content removed by moderator."
+                            if thread and thread.is_deleted
+                            else (
+                                original_post.content
+                                if original_post
+                                else None
+                            )
                         ),
                         "thread_id": thread.thread_id.hex if thread else None,
                         "post_id": None,
@@ -314,9 +321,13 @@ async def list_reports(
                         "type": "Reply",
                         "title": thread.title if thread else "(Deleted Thread)",
                         "reported_content": (
-                            post.content
-                            if post
-                            else None
+                            "Content removed by moderator."
+                            if post and post.is_deleted
+                            else (
+                                post.content
+                                if post
+                                else None
+                            )
                         ),
                         "thread_id": thread.thread_id.hex if thread else None,
                         "post_id": post.post_id.hex if post else None,
@@ -402,13 +413,13 @@ async def remove_reported_content(
         if report.thread_id:
             thread = session.get(Thread, report.thread_id)
             if thread:
-                session.delete(thread)
-                session.flush()  # Execute the delete now
+                thread.is_deleted = True
+                session.flush() 
         elif report.post_id:
             post = session.get(Post, report.post_id)
             if post:
-                session.delete(post)
-                session.flush()  # Execute the delete now
+                post.is_deleted = True
+                session.flush()  
 
         if report.thread_id:
             all_reports = session.scalars(
