@@ -145,6 +145,7 @@ export default function ReportHandling() {
                   )}
 
                   <div className="report-footer">
+                    {status === "Pending" && (
                     <div className="row-actions">
                       <button
                         className="btn btn--secondary btn--sm"
@@ -157,6 +158,7 @@ export default function ReportHandling() {
                     >Remove Content
                     </button>
                     </div>
+                    )}
                   </div>
                 </div>
               </div>
