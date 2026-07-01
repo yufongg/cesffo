@@ -14,9 +14,8 @@ from .schemas import AttachmentResponse, NotificationResponse, PostResponse, Thr
 UPLOAD_DIR = (Path("uploads") / "forum").resolve()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Allow-list of image types, keyed by the MIME we detect from the file's *actual*
-# bytes -> the extension we assign. The client-supplied content-type and filename
-# are never trusted for storage (both are trivially forged).
+#! Allow-list keyed by the MIME we detect from the file's ACTUAL bytes -> the extension we assign.
+#! The client-supplied content-type and filename are never trusted for storage (both are trivially forged).
 ALLOWED_IMAGE_TYPES = {
     "image/jpeg": "jpg",
     "image/png": "png",
@@ -177,7 +176,8 @@ async def save_attachments(session, post: Post, files: Optional[List[UploadFile]
         extension = ALLOWED_IMAGE_TYPES[detected_mime]
         stored_name = f"{uuid.uuid4().hex}.{extension}"
         target_path = (UPLOAD_DIR / stored_name).resolve()
-        # Defence-in-depth: a generated UUID name can't escape the dir, but verify.
+        #! Defence-in-depth path-traversal check: a generated UUID name can't escape the
+        #! upload dir, but verify the resolved parent is exactly UPLOAD_DIR before writing.
         if target_path.parent != UPLOAD_DIR:
             raise HTTPException(status_code=400, detail="Invalid upload path")
 

@@ -1,5 +1,6 @@
 import os
 from urllib.parse import quote
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
@@ -12,13 +13,13 @@ from core.rate_limit import limiter
 from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from common.audit import log_action
 from common.email import send_password_reset_email
-from common.security import client_ip as _client_ip
+from common.security import client_ip as _client_ip, parse_uid as _parse_uid, to_uuid as _to_uuid
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
     register, login, change_password, change_password_authenticated, update_profile,
-    request_password_reset, decode_access_token, parse_user_id,
+    request_password_reset, decode_access_token,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, InvalidCurrentPasswordError, ResetTokenInvalidError,
@@ -29,9 +30,6 @@ from .auth import (
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
-# Base URL of the React SPA, used to build the password-reset link placed in the
-# email. Set FRONTEND_BASE_URL in production (e.g. https://app.example.com); falls
-# back to the local dev origin otherwise.
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 # Returned identically whether or not the email exists — anti-enumeration.
@@ -39,9 +37,6 @@ _GENERIC_RESET_MESSAGE = (
     "If an account exists for that email, a password reset link has been sent."
 )
 
-# A forced-reset token is a short-lived bearer token the client holds in memory
-# and sends in the Authorization header, NOT a session cookie. So the reset flow
-# keeps a header-based scheme while normal sessions use the httpOnly cookie one.
 reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
@@ -56,7 +51,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # A password-reset token authorises ONLY /change-password — never a session.
+    #! A password-reset token authorises ONLY /change-password — it must never unlock a normal session.
     if payload.get("scope") == SCOPE_PASSWORD_RESET:
         raise HTTPException(status_code=401, detail="Password reset required before continuing")
 
@@ -110,7 +105,7 @@ class UserRegistrationSchema(BaseModel):
         ...,
         min_length=MIN_PASSWORD_LENGTH,
         max_length=128,
-        description="Min 10 chars with an uppercase, lowercase, number and special character. Full policy enforced server-side.",
+        description="Min 8 chars with an uppercase, lowercase, number and special character. Full policy enforced server-side.",
     )
     password_confirm: str
 
@@ -173,11 +168,10 @@ async def register_user(request: Request, req: UserRegistrationSchema, response:
 
 
 def _record_login_attempt(*, user_id, outcome, ip, reason=None):
-    """SR-11: persist a login attempt to the append-only audit log in its own
-    transaction so the record survives even when the request ultimately errors.
-    The attempted email is deliberately NOT logged (avoids PII in logs / account
-    enumeration); failures with no resolved account are recorded with a null user.
-    """
+    #! SR-11: write the login attempt to the append-only audit log in ITS OWN
+    #! transaction, so the record survives even if the request later errors out.
+    #! The attempted email is deliberately never logged (keeps PII out of logs and
+    #! avoids an enumeration oracle); attempts with no resolved account get a null user.
     details = {"reason": reason} if reason else None
     with get_db_session() as session:
         log_action(
@@ -244,12 +238,7 @@ async def logout(response: Response):
 
 @router.get("/getProfile", response_model=UserProfileResponse)
 async def get_profile(request: Request, current_user: dict = Depends(get_current_user)):
-    try:
-        uid = parse_user_id(current_user["user_id"])
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
+    uid = _parse_uid(current_user)
     with get_db_session() as session:
         user = session.scalar(select(User).where(User.user_id == uid))
         if not user:
@@ -267,11 +256,7 @@ async def update_profile_route(
     if req.username is None and req.email is None:
         raise HTTPException(status_code=400, detail="Provide a username and/or email to update")
 
-    try:
-        uid = parse_user_id(current_user["user_id"])
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
+    uid = _parse_uid(current_user)
     try:
         username, email, role = await update_profile(
             uid, username=req.username, email=req.email
@@ -298,11 +283,7 @@ async def change_my_password_route(
     """Self-service password change for a logged-in user. Requires the current
     password (verified server-side) — distinct from /change-password, which is
     the forced-reset flow gated by a one-time reset token."""
-    try:
-        uid = parse_user_id(current_user["user_id"])
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
+    uid = _parse_uid(current_user)
     try:
         await change_password_authenticated(
             uid, req.current_password, req.new_password, req.new_password_confirm
@@ -326,12 +307,13 @@ async def forgot_password_route(
     req: ForgotPasswordSchema,
     background_tasks: BackgroundTasks,
 ):
-    """Self-service password reset. Emails a one-time link to the account owner.
+    """Self-service password reset: email a one-time link to the account owner.
 
-    Always returns the SAME generic 200 whether or not the email matches an
-    account, so it cannot be used to discover which emails are registered. The
-    email is sent in a background task so the response time does not depend on
-    account existence either (timing-oracle defence)."""
+    Always returns 200 with the same generic message whether or not the email
+    exists, so it can't be used to discover which addresses are registered. The
+    email is sent from a background task so the response time doesn't depend on
+    account existence either (timing-oracle defence).
+    """
     ip = _client_ip(request)
     try:
         result = await request_password_reset(req.email)
@@ -342,13 +324,13 @@ async def forgot_password_route(
     if result:
         uid, token, username, email = result
         reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
-        # Deliver after the response is sent — keeps timing uniform and SMTP
-        # latency/errors off the request path.
+        #! Send after the response is returned — keeps response timing uniform and
+        #! keeps SMTP latency/errors off the request path (timing-oracle defence).
         background_tasks.add_task(
             send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
         )
-        # SR-11: audit in the background too, so the request path does identical
-        # work whether or not the account exists (anti-enumeration timing).
+        #! SR-11: audit in the background too, so the request does identical work whether
+        #! or not the account exists (otherwise the timing leaks which emails are registered).
         background_tasks.add_task(_record_password_reset_request, user_id=uid, ip=ip)
 
     return AuthResponseSchema(detail=_GENERIC_RESET_MESSAGE)
@@ -364,8 +346,8 @@ async def change_password_route(
 ):
 
     try:
-        uid = parse_user_id(claims["sub"])
-    except ValueError:
+        uid = UUID(claims["sub"])
+    except (ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid reset token subject")
 
     try:

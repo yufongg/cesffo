@@ -1,8 +1,8 @@
 import os
 
-from fastapi import FastAPI, Request, status #, HTTPException, Body, Form, Depends,
+from fastapi import FastAPI, Request, status
 from fastapi.concurrency import asynccontextmanager
-from fastapi.responses import JSONResponse #, RedirectResponse, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -167,19 +167,20 @@ app.include_router(forum_router)
 
 
 
-# --- 
-@app.get("/healthcheck", tags=["Health"]) 
+#? Liveness/readiness probe — also confirms the DB is reachable with a trivial query.
+@app.get("/healthcheck", tags=["Health"])
 async def healthcheck():
-    try: 
+    try:
         with get_db_session() as session:
             session.execute(text("SELECT 1"))
-        
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"status": "healthy", "database": "connected"}
         )
-    except Exception: # as e: 
-        # TODO: configure Logger and log exception
+    except Exception:
+        #* DB unreachable -> report unhealthy so orchestrators can restart/route around us.
+        # TODO: wire up the logger and log the exception here.
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "unhealthy"}

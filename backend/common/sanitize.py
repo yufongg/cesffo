@@ -1,8 +1,8 @@
 import nh3
 
-# SR-09: the course-content editor (module descriptions, reading material body,
-# activity prompts) is a named high-risk stored-XSS surface. Allow a small set
-# of formatting tags only — no script/style/iframe/event handlers/href javascript:.
+#! SR-09: course content (module descriptions, reading bodies, activity prompts) is a
+#! high-risk stored-XSS surface. Allow ONLY this small formatting set — never script/
+#! style/iframe/event handlers or javascript: hrefs. Everything else is stripped on write.
 ALLOWED_TAGS = {
     "p", "br", "strong", "em", "u", "s", "ul", "ol", "li",
     "h1", "h2", "h3", "h4", "blockquote", "code", "pre", "a",

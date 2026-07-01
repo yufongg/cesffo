@@ -33,8 +33,9 @@ class User(Base):
     xp = Column(Integer, default=0, nullable=False)                 # lifetime XP earned (drives leaderboards)
     level = Column(Integer, default=1, nullable=False)              # derived from xp; stored for fast ranking
 
-    # Relationships
-    # enrollments = relationship("CourseEnrollment", back_populates="student", cascade="all, delete-orphan")
+    #? Relationships
+    #^ No User.enrollments back-ref on purpose: enrollment queries go through student_id
+    #^ directly (see course_router._my_enrollments), so the reverse link is left disabled.
     cart = relationship("Cart", back_populates="user", uselist=False, cascade="all, delete-orphan")
     liked_posts = relationship("PostLikes", back_populates="user", cascade="all, delete-orphan")
 
@@ -317,17 +318,16 @@ class PostReport(Base):
 class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
 
-    enrollment_id = Column(Integer, primary_key=True, autoincrement=True) # serial id, do not use on client side
+    enrollment_id = Column(Integer, primary_key=True, autoincrement=True)  #! internal serial id — never expose to the client
     course_id = Column(UUID(as_uuid=True), ForeignKey("course.course_id", ondelete="CASCADE"), nullable=False)
     student_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL"), nullable=True)
     progress = Column(Float, default=0.0, nullable=False)
-    enrolled_date = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    enrolled_date = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
 
-    
-    # Relationships
+    #? Relationships
     course = relationship("Course", back_populates="enrollments")
-    # student = relationship("User", back_populates="enrollments")
+    #^ Reverse User.enrollments link intentionally omitted (see the User model note).
 
 # --- NOTIFICATION MODEL ---
 class Notification(Base):

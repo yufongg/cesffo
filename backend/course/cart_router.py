@@ -7,8 +7,11 @@ from sqlalchemy import select
 
 from core.rate_limit import limiter
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
+from common.course_fields import (
+    course_summary, course_level, course_tags, instructor_names as _instructor_names,
+)
 from db.db import get_db_session
-from model.models import Cart, Course, CourseEnrollment, User
+from model.models import Cart, Course, CourseEnrollment
 from user.auth_router import get_current_user
 
 
@@ -61,22 +64,6 @@ def _safe_cart_ids(value) -> List[str]:
     return result
 
 
-def _course_summary(course: Course) -> Optional[str]:
-    content = course.content if isinstance(course.content, dict) else {}
-    summary = content.get("summary")
-    return summary if isinstance(summary, str) else None
-
-
-def _course_level(course: Course) -> Optional[str]:
-    prereq = course.prerequirements if isinstance(course.prerequirements, dict) else {}
-    level = prereq.get("level")
-    return level if isinstance(level, str) else None
-
-
-def _course_tags(course: Course) -> List[str]:
-    return [str(t) for t in course.tags if isinstance(t, (str, int, float))] if isinstance(course.tags, list) else []
-
-
 def _get_or_create_cart(session, user_id: UUID) -> Cart:
     cart = session.scalar(select(Cart).where(Cart.user_id == user_id))
     if cart is None:
@@ -94,14 +81,6 @@ def _active_enrolled_ids(session, user_id: UUID) -> set[UUID]:
         )
     ).all()
     return set(rows)
-
-
-def _instructor_names(session, courses: List[Course]) -> dict:
-    ids = {course.instructor_id for course in courses if course.instructor_id}
-    if not ids:
-        return {}
-    rows = session.execute(select(User.user_id, User.username).where(User.user_id.in_(ids))).all()
-    return {user_id: username for user_id, username in rows}
 
 
 def _cart_response(session, cart: Cart, user_id: UUID) -> CartResponse:
@@ -129,9 +108,9 @@ def _cart_response(session, cart: Cart, user_id: UUID) -> CartResponse:
             course_id=course.course_id.hex,
             course_name=course.course_name,
             instructor=names.get(course.instructor_id),
-            summary=_course_summary(course),
-            level=_course_level(course),
-            tags=_course_tags(course),
+            summary=course_summary(course),
+            level=course_level(course),
+            tags=course_tags(course),
             xp_reward=course.xp_reward or 0,
             price_cents=course.price_cents or 0,
             currency=course.currency or DEFAULT_CURRENCY,

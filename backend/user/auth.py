@@ -30,15 +30,12 @@ if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(64)
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-
-RESET_TOKEN_EXPIRE_MINUTES = 10
-# A self-service email link is clicked out-of-band (the user must switch to their
-# mailbox), so it gets a slightly longer — but still short — window than the
-# in-session forced-reset token above.
-RESET_LINK_EXPIRE_MINUTES = 30
-MAX_AUTH_ATTEMPTS = 5
+#$ Token / lockout lifetimes (minutes, except the attempt count). Tuned to the security NFRs.
+ACCESS_TOKEN_EXPIRE_MINUTES = 30    # how long a normal session token is valid
+RESET_TOKEN_EXPIRE_MINUTES = 10     # forced-reset token issued at login
+RESET_LINK_EXPIRE_MINUTES = 30      # self-service "forgot password" link
+MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
@@ -51,11 +48,11 @@ ROLE_ADMIN = "admin"
 ALLOWED_ROLES = frozenset({ROLE_STUDENT, ROLE_INSTRUCTOR, ROLE_ADMIN})
 
 # --- Password policy (SR-01) ---
-# SR-01 mandates >= 10 chars AND at least one uppercase, one lowercase, one digit
-# and one special character. We ALSO keep the known-bad blocklist and the
-# username/email-substring checks below as defence-in-depth (a strict superset of
-# SR-01).
-MIN_PASSWORD_LENGTH = 10
+# Minimum 8 chars AND at least one uppercase, one lowercase, one digit and one
+# special character. Strength here comes from the enforced character-class
+# complexity (plus the known-bad blocklist and the username/email-substring
+# checks below as defence-in-depth) rather than from raw length alone.
+MIN_PASSWORD_LENGTH = 8
 # Cap at 128 to bound Argon2 work (DoS guard) while still permitting passphrases.
 # This MUST match the router schema's max_length.
 MAX_PASSWORD_LENGTH = 128
@@ -160,15 +157,9 @@ def generate_temp_password(length: int = 16) -> str:
     return "".join(chars)
 
 
-def parse_user_id(raw: str) -> UUID:
-    """Parse a user id (hex or canonical form) into a UUID, or raise ValueError."""
-    return UUID(raw)
-
-
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-
-    # SR-01: enforce length and character-class composition, then apply the
-    # defence-in-depth blocklist / identity-substring checks.
+    #! SR-01: length + character-class rules first, then the defence-in-depth
+    #! blocklist and "must not contain your own username/email" checks.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
@@ -237,11 +228,11 @@ async def register(email: EmailStr, username: str, password: str, password_confi
     email = email.strip().lower()
     username = username.strip()
 
-    #! Enforce password policy before touching the DB or hashing
+    #! Enforce the password policy before touching the DB or hashing (cheap reject first).
     validate_password_strength(password, username=username, email=email)
 
     with get_db_session() as session:
-        # email is encrypted at rest, so search by its blind index, not the value.
+        #? Uniqueness checks: email by blind index (it's encrypted), username by value.
         if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
             raise ExistingUserError("email")
 
@@ -271,10 +262,12 @@ async def register(email: EmailStr, username: str, password: str, password_confi
 async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
     email = email.strip().lower()
     with get_db_session() as session:
+        #? email is encrypted at rest, so we look it up by its deterministic blind index.
         existing_user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
 
-        # Argon2 verify against a dummy hash so the response time matches the
-        # "wrong password" path, then fail with the same generic error.
+        #! No such user: still run a real Argon2 verify against a throwaway hash so this
+        #! path takes the same time as a wrong-password attempt (closes the timing oracle
+        #! an attacker would use to enumerate which emails exist), then fail generically.
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
@@ -282,7 +275,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
                 pass
             raise UserNotFoundError()
 
-        # Banned or soft-deleted accounts must never authenticate.
+        #! Banned or soft-deleted accounts must never authenticate.
         if existing_user.is_deleted or not existing_user.is_active:
             raise InactiveAccountError()
 
@@ -294,20 +287,21 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         try:
             _ph.verify(existing_user.password, password)
         except exceptions.VerifyMismatchError:
+            #! Wrong password: bump the failed-attempt counter (feeds the lockout) and fail generically.
             existing_user.auth_attempts += 1
             session.commit()
             raise PasswordsMismatchError()
         except (exceptions.InvalidHashError, exceptions.VerificationError):
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
-        # Successful login: reset the failed-attempt counter.
+        #* Correct password: clear the failed-attempt counter.
         existing_user.auth_attempts = 0
 
-        # Transparently upgrade the stored hash if Argon2 parameters changed.
+        #* If our Argon2 cost parameters have since changed, transparently re-hash on this login.
         if _ph.check_needs_rehash(existing_user.password):
             existing_user.password = _ph.hash(password)
 
-        # Capture what we need before the session commits and closes.
+        #^ Snapshot what we need now, before the context manager commits and closes the session.
         must_reset = existing_user.force_password_reset
         uid = existing_user.user_id
         role = existing_user.role

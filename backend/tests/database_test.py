@@ -7,32 +7,25 @@ from model.models import User, Cart
 from common.encryption import blind_index
 
 def test_database_connection_direct():
-    """
-    Directly tests if SQLAlchemy can initiate a session, communicate 
-    with the database socket, and execute a basic query expression.
-    """
+    #* Smoke test: open a raw session and run the simplest possible query.
     db = SessionLocal()
     try:
         result = db.execute(text("SELECT 1")).scalar()
         assert result == 1, "Database returned unexpected response value."
     except Exception as e:
-        pytest.fail(f"Failed to connect to the database engine layout: {e}")
+        pytest.fail(f"Failed to connect to the database: {e}")
     finally:
         db.close()
 
 def test_context_manager_session():
-    """
-    Tests that the 'get_db_session' context manager functions as 
-    intended and successfully commits or handles operational logic loops.
-    """
+    #* Confirm get_db_session() yields a working session and runs a query end to end.
     with get_db_session() as session:
         result = session.execute(text("SELECT 1")).scalar()
         assert result == 1
-    # Session is guaranteed closed here by the context manager's finally block
+    #^ The context manager's finally block guarantees the session is closed by here.
 
 def test_database():
-    """Verify application connects to the correct database expected by system configurations(environment variables)."""
-
+    #* Verify we're connected to the database named by the DB_NAME env var, not some other one.
     expected_db = os.getenv("DB_NAME", "db")
 
     with get_db_session() as session:
@@ -40,12 +33,9 @@ def test_database():
         assert current_db_name == expected_db, (f"Database mismatch! Connected to '{current_db_name}' but expected '{expected_db}'")
     
 def test_db_models():
+    #* End-to-end ORM check: create a User + Cart, then read the relationship back.
     try:
         with get_db_session() as session:
-            # email is AES-256-GCM encrypted (randomized), so it can NEVER be used
-            # in a WHERE/equality filter — a freshly-encrypted literal uses a new
-            # nonce and matches no stored row. Look it up via the deterministic
-            # blind index instead (the same pattern register()/login() use).
             email = "test@example.com"
             session.query(User).filter(User.email_bidx == blind_index(email)).delete()
             session.commit()
@@ -54,7 +44,7 @@ def test_db_models():
                 username="test_runner",
                 password="hashed_secure_password_string",
                 email=email,
-                email_bidx=blind_index(email),  # NOT NULL companion index
+                email_bidx=blind_index(email),  #? required companion blind index for the encrypted email
             )
             session.add(test_user)
             session.commit()
@@ -68,8 +58,8 @@ def test_db_models():
             assert test_user.cart is not None
             assert test_user.cart.cart_items == ["course_id_1", "course_id_2"]
 
-            # Cleanup test data
+            #* Clean up the rows this test created.
             session.delete(test_user)
             session.commit()
     except Exception as e:
-        pytest.fail(f"Model integrity test faulted {e}")
+        pytest.fail(f"Model integrity test failed: {e}")

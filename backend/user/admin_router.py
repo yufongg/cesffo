@@ -65,7 +65,7 @@ def _to_view(user: User) -> AdminUserView:
 
 
 def parse_uuid(raw: str) -> UUID:
-    # Specialises the shared parser with this router's error message.
+    #* Shared UUID parser, just with this router's "user id" wording on failure.
     return to_uuid(raw, detail="Invalid user id")
 
 
@@ -84,7 +84,7 @@ def validate_role(role: str) -> str:
         )
     return role
 
-# Kinda not sure if this is needed
+#? Counts live admins (optionally excluding one) — used to block demoting/banning the last admin.
 def _count_active_admins(session, exclude_id: Optional[UUID] = None) -> int:
     stmt = select(func.count()).select_from(User).where(
         User.role == ROLE_ADMIN,
@@ -123,7 +123,7 @@ async def create_user(request: Request, req: CreateUserRequest, admin: dict = De
     hashed = hash_password(temp_password)
 
     with get_db_session() as session:
-        # email is encrypted at rest, so search by its blind index, not the value.
+        #? email is encrypted at rest, so dedupe by its blind index rather than the value.
         if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
             raise HTTPException(status_code=409, detail="A user with that email already exists")
         if session.scalar(select(User).where(User.username == username)):
@@ -154,13 +154,13 @@ async def assign_role(request: Request, user_id: str, req: AssignRoleRequest, ad
     with get_db_session() as session:
         user = retrieve_user(session, uid)
 
-        # Guard: don't let an admin demote the last remaining admin (incl. self).
+        #! Don't let an admin demote the last remaining admin (including themselves) — would lock everyone out of admin.
         if user.role == ROLE_ADMIN and role != ROLE_ADMIN:
             if _count_active_admins(session, exclude_id=uid) == 0:
                 raise HTTPException(status_code=409, detail="Cannot demote the last remaining admin")
 
         user.role = role
-        # SR-11: role assignments are a security-relevant event.
+        #! SR-11: a role change is security-relevant, so record it in the audit log.
         log_action(
             session, user_id=_parse_uid(admin), action="assign_role",
             resource_type="user", resource_id=uid, ip_address=_client_ip(request),
