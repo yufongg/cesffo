@@ -22,6 +22,7 @@ import AdminDashboard from './pages/Admin/AdminDashboard';
 import AdminUsers from './pages/Admin/Users';
 import InstructorDashboard from './pages/InstructorDashboard';
 import NotFound from './pages/NotFound';
+import ReportHandling from "./pages/Admin/ReportHandling";
 
 // Security Imports
 import { RoleCheck, ProtectedRoute } from './components/Security/RoleCheck';
@@ -157,6 +158,14 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+                  <Route
+                    path="/admin/report-handling"
+                    element={
+                        <ProtectedRoute adminOnly={true}>
+                            <ReportHandling />
+                        </ProtectedRoute>
+                    }
+                />
 
                   {/* ANY new valid route should be placed above this, this is the default route*/}
                   <Route

@@ -196,3 +196,26 @@ export function listMyReports() {
 export function listMyThreads() {
     return apiFetch("/api/v1/forum/users/my-threads");
 }
+
+/* -------------------------------------------------------------------------- */
+/* Admin Report Handling                                                      */
+/* -------------------------------------------------------------------------- */
+
+export function listAdminReports() {
+    return apiFetch("/api/v1/admin/reports");
+}
+
+export function updateReportStatus(reportId, status) {
+    return apiFetch(`/api/v1/admin/reports/${reportId}`, {
+        method: "PATCH",
+        body: {
+            status,
+        },
+    });
+}
+
+export function removeReportedContent(reportId) {
+    return apiFetch(`/api/v1/admin/reports/${reportId}/remove`, {
+        method: "DELETE",
+    });
+}

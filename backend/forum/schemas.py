@@ -115,3 +115,43 @@ class UserReportResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UpdateReportStatusRequest(BaseModel):
+    status: str
+
+class AdminReportResponse(BaseModel):
+    report_id: str
+    type: str
+    title: str
+    reported_content: Optional[str]
+    reason: str
+    description: Optional[str]
+    status: str
+    created_at: datetime
+    reporter_name: str
+    thread_id: Optional[str]
+    post_id: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class IndividualReportResponse(BaseModel):
+    report_id: str
+    reporter_name: str
+    reason: str
+    description: Optional[str]
+    status: str
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class ReportGroupResponse(BaseModel):
+    type: str
+    title: str
+    reported_content: Optional[str]
+    thread_id: Optional[str]
+    post_id: Optional[str]
+    report_count: int
+    reports: List[IndividualReportResponse]
+    class Config:
+        from_attributes = True
