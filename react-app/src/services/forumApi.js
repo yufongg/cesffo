@@ -187,3 +187,12 @@ export function reportPost(postId, reason, description = "") {
 export function listMyReports() {
   return apiFetch("/api/v1/forum/users/reports");
 }
+
+/* -------------------------------------------------------------------------- */
+/* My Threads                                                                 */
+/* -------------------------------------------------------------------------- */
+
+
+export function listMyThreads() {
+    return apiFetch("/api/v1/forum/users/my-threads");
+}

@@ -861,16 +861,37 @@ async def list_my_reports(
         for report in reports:
 
             if report.thread_id:
+
                 thread = session.get(Thread, report.thread_id)
+
+                original_post = None
+
+                if thread:
+                    original_post = session.scalar(
+                        select(Post)
+                        .where(
+                            Post.thread_id == thread.thread_id,
+                            Post.parent_id.is_(None)
+                        )
+                    )
 
                 results.append(
                     UserReportResponse(
                         report_id=report.report_id.hex,
                         type="thread",
                         title=thread.title if thread else "(Deleted thread)",
+
+                        reported_content=(
+                            original_post.content
+                            if original_post
+                            else None
+                        ),
+
                         reason=report.reason,
+                        description=report.description,
                         status=report.status,
                         created_at=report.created_at,
+
                         thread_id=thread.thread_id.hex if thread else None,
                         category_id=thread.category_id.hex if thread else None,
                     )
@@ -891,15 +912,60 @@ async def list_my_reports(
                         report_id=report.report_id.hex,
                         type="reply",
                         title=thread.title if thread else "(Deleted thread)",
+
+                        reported_content=(
+                            post.content
+                            if post
+                            else None
+                        ),
+
                         reason=report.reason,
+                        description=report.description,
                         status=report.status,
                         created_at=report.created_at,
+
                         thread_id=thread.thread_id.hex if thread else None,
                         category_id=thread.category_id.hex if thread else None,
                     )
                 )
 
         return results
+
+# --- Threads Posted ---------------------------
+@router.get(
+    "/users/my-threads",
+    response_model=List[ThreadResponse],
+)
+async def list_my_threads(
+    current_user: dict = Depends(get_current_user),
+):
+    uid = _parse_uid(current_user)
+
+    with get_db_session() as session:
+
+        threads = session.scalars(
+            select(Thread)
+            .where(Thread.creator_id == uid)
+            .options(
+                selectinload(Thread.posts),
+                selectinload(Thread.likes),
+            )
+            .order_by(Thread.updated_at.desc())
+        ).all()
+
+        return [
+            thread_to_response(
+                thread,
+                session,
+                like_count=len(thread.likes),
+                is_liked=any(
+                    like.user_id == uid
+                    for like in thread.likes
+                ),
+            )
+            for thread in threads
+        ]
+    
 # --- WebSocket (token-authenticated live updates) ---------------------------
 def _authenticate_ws_token(token: Optional[str]) -> bool:
     """Validate the JWT taken from the session cookie on the WS handshake.

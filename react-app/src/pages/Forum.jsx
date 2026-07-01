@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ForumCategoryNav from '../components/forum/ForumCategoryNav';
 import ThreadList from '../components/forum/ThreadList';
 import ThreadDetail from '../components/forum/ThreadDetail';
 import ThreadComposer from '../components/forum/ThreadComposer';
 import ReportModal from "../components/forum/ReportModal";
+import MyReportsPanel from "../components/forum/MyReportsPanel";
 import {
   listCategories,
   listPosts,
@@ -22,7 +24,8 @@ import {
   markLastViewedThread,
   reportThread,
   reportPost,
-  listMyReports
+  listMyReports,
+  listMyThreads
 } from '../services/forumApi';
 
 const norm = (value) => (value ? value.replaceAll('-', '').toLowerCase() : '');
@@ -40,11 +43,13 @@ export default function Forum() {
 
   const selectedThreadIdRef = useRef(null);
   const currentUserId = norm(localStorage.getItem('user_id'));
+  const navigate = useNavigate();
   const isAdmin = localStorage.getItem('user_role') === 'admin';
 
   const [threadView, setThreadView] = useState("all");
   const [likedThreads, setLikedThreads] = useState([]);
   const [lastViewedThreads, setLastViewedThreads] = useState([]);
+  const [myThreads, setMyThreads] = useState([]);
   const [reportTarget, setReportTarget] = useState(null);
   const [myReports, setMyReports] = useState([]);
   
@@ -62,11 +67,22 @@ export default function Forum() {
           );
       }
 
+      if (threadView === "mine") {
+          return myThreads.filter(
+              thread => thread.category_id === selectedCategory?.category_id
+          );
+      }
+      
+      // My Reports doesn't display threads
+      if (threadView === "reports") {
+          return [];
+      }
       return selectedCategory?.threads || [];
 
   }, [
       threadView,
       likedThreads,
+      myThreads,
       selectedCategory,
   ]);
 
@@ -126,6 +142,19 @@ export default function Forum() {
   }, []);
 
   useEffect(() => { selectedThreadIdRef.current = selectedThreadId; }, [selectedThreadId]);
+
+  useEffect(() => {
+    async function loadReports() {
+        try {
+            const reports = await listMyReports();
+            setMyReports(reports);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    loadReports();
+}, []);
 
   useEffect(() => {
     loadCategories().catch((e) => flashError(e.message));
@@ -288,18 +317,20 @@ async function submitReport(reason, description) {
     }
 }
 
-async function handleThreadViewChange(view) {
-  setThreadView(view);
-
-  try {
-    if (view === "liked") {
-      const data = await listLikedThreads();
-      setLikedThreads(data);
-    }
-  } catch (e) {
-    flashError(e.message);
+  async function handleThreadViewChange(view) {
+      setThreadView(view);
+      try {
+          if (view === "liked") {
+              setLikedThreads(await listLikedThreads());
+          } else if (view === "mine") {
+              setMyThreads(await listMyThreads());
+          } else if (view === "reports") {
+              setMyReports(await listMyReports());
+          }
+      } catch (e) {
+          flashError(e.message);
+      }
   }
-}
 
   function backToList() {
     setSelectedThreadId(null);
@@ -422,8 +453,14 @@ async function handleThreadViewChange(view) {
       <div className="container">
         <div className="page-header">
           <span className="eyebrow">Community</span>
-          <h1>Discussion forum</h1>
-          <p className="subtitle">Ask questions, share tips, and learn alongside other members.</p>
+
+          <div className="page-header-top">
+            <h1>Discussion Forum</h1>
+          </div>
+
+          <p className="subtitle">
+            Ask questions, share tips, and learn alongside other members.
+          </p>
         </div>
 
         <ForumCategoryNav
@@ -435,18 +472,19 @@ async function handleThreadViewChange(view) {
         {status && <p role="status" className="alert alert--success">{status}</p>}
         {error && <p role="alert" className="alert alert--error">{error}</p>}
 
-        {viewMode === 'list' && (
+        {viewMode === "list" && (
           <ThreadList
             title={selectedCategory?.name}
             description={selectedCategory?.description}
             threads={displayThreads}
+            reports={myReports}
+            threadView={threadView}
             selectedThreadId={selectedThreadId}
             lastViewedThread={lastViewedThread}
             onOpenThread={openThread}
-            onStartThread={() => setViewMode('create')}
-            threadView={threadView}
+            onStartThread={() => setViewMode("create")}
             onThreadViewChange={handleThreadViewChange}
-        />
+          />
         )}
 
         {viewMode === 'create' && (

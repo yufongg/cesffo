@@ -121,7 +121,6 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-
                   <Route
                     path="/instructor"
                     element={

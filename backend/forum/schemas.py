@@ -106,10 +106,12 @@ class UserReportResponse(BaseModel):
     type: str
     title: str
     reason: str
+    description: Optional[str]
     status: str
     created_at: datetime
-    thread_id: Optional[str] = None
-    category_id: Optional[str] = None
+    thread_id: Optional[str]
+    category_id: Optional[str]
+    reported_content: Optional[str] = None
 
     class Config:
         from_attributes = True
