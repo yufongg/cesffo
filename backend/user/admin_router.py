@@ -238,7 +238,6 @@ async def reset_password(request: Request, user_id: str, admin: dict = Depends(r
 
     return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
 
-
 @router.get(
     "/reports",
     response_model=List[ReportGroupResponse],
@@ -246,18 +245,14 @@ async def reset_password(request: Request, user_id: str, admin: dict = Depends(r
 async def list_reports(
     admin: dict = Depends(require_admin),
 ):
-
     with get_db_session() as session:
-
         reports = session.scalars(
-            select(Report)
-            .order_by(Report.created_at.desc())
+            select(Report).order_by(Report.created_at.desc())
         ).all()
 
         grouped = {}
 
         for report in reports:
-
             if report.thread_id:
                 key = f"thread-{report.thread_id}"
             else:
@@ -266,9 +261,7 @@ async def list_reports(
             reporter = session.get(User, report.reporter_id)
 
             if report.thread_id:
-
                 thread = session.get(Thread, report.thread_id)
-
                 original_post = None
 
                 if thread:
@@ -280,54 +273,36 @@ async def list_reports(
                     )
 
                 if key not in grouped:
-
                     grouped[key] = {
-
                         "type": "Thread",
-
                         "title": thread.title if thread else "(Deleted Thread)",
-
                         "reported_content": (
                             original_post.content
                             if original_post
                             else None
                         ),
-
                         "thread_id": thread.thread_id.hex if thread else None,
-
                         "post_id": None,
-
                         "reports": [],
                     }
 
                 grouped[key]["reports"].append(
-
                     IndividualReportResponse(
-
                         report_id=report.report_id.hex,
-
                         reporter_name=(
                             reporter.username
                             if reporter
                             else "Unknown"
                         ),
-
                         reason=report.reason,
-
                         description=report.description,
-
                         status=report.status,
-
                         created_at=report.created_at,
-
                     )
-
                 )
 
             elif report.post_id:
-
                 post = session.get(Post, report.post_id)
-
                 thread = (
                     session.get(Thread, post.thread_id)
                     if post
@@ -335,77 +310,50 @@ async def list_reports(
                 )
 
                 if key not in grouped:
-
                     grouped[key] = {
-
                         "type": "Reply",
-
                         "title": thread.title if thread else "(Deleted Thread)",
-
                         "reported_content": (
                             post.content
                             if post
                             else None
                         ),
-
                         "thread_id": thread.thread_id.hex if thread else None,
-
                         "post_id": post.post_id.hex if post else None,
-
                         "reports": [],
                     }
 
                 grouped[key]["reports"].append(
-
                     IndividualReportResponse(
-
                         report_id=report.report_id.hex,
-
                         reporter_name=(
                             reporter.username
                             if reporter
                             else "Unknown"
                         ),
-
                         reason=report.reason,
-
                         description=report.description,
-
                         status=report.status,
-
                         created_at=report.created_at,
-
                     )
-
                 )
 
         response = []
-
         for group in grouped.values():
-
             response.append(
-
                 ReportGroupResponse(
-
                     type=group["type"],
-
                     title=group["title"],
-
                     reported_content=group["reported_content"],
-
                     thread_id=group["thread_id"],
-
                     post_id=group["post_id"],
-
                     report_count=len(group["reports"]),
-
                     reports=group["reports"],
-
                 )
-
             )
 
         return response
+
 
 @router.patch("/reports/{report_id}")
 async def update_report_status(
@@ -414,9 +362,7 @@ async def update_report_status(
     admin: dict = Depends(require_admin),
 ):
     with get_db_session() as session:
-
         report = session.get(Report, report_id)
-
         if not report:
             raise HTTPException(
                 status_code=404,
@@ -424,90 +370,61 @@ async def update_report_status(
             )
 
         if report.thread_id:
-
             all_reports = session.scalars(
-
                 select(Report).where(
                     Report.thread_id == report.thread_id
                 )
-
             ).all()
-
         else:
-
             all_reports = session.scalars(
-
                 select(Report).where(
                     Report.post_id == report.post_id
                 )
-
             ).all()
 
         for r in all_reports:
-
             r.status = payload.status
 
         session.commit()
+        return {"success": True}
 
-        return {
-            "success": True
-        }
-    
+
 @router.delete("/reports/{report_id}/remove")
 async def remove_reported_content(
-        report_id: UUID,
-        admin: dict = Depends(require_admin),
-    ):
+    report_id: UUID,
+    admin: dict = Depends(require_admin),
+):
+    with get_db_session() as session:
+        report = session.get(Report, report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
 
-        with get_db_session() as session:
+        if report.thread_id:
+            thread = session.get(Thread, report.thread_id)
+            if thread:
+                session.delete(thread)
+                session.flush()  # Execute the delete now
+        elif report.post_id:
+            post = session.get(Post, report.post_id)
+            if post:
+                session.delete(post)
+                session.flush()  # Execute the delete now
 
-            report = session.get(Report, report_id)
+        if report.thread_id:
+            all_reports = session.scalars(
+                select(Report).where(
+                    Report.thread_id == report.thread_id
+                )
+            ).all()
+        else:
+            all_reports = session.scalars(
+                select(Report).where(
+                    Report.post_id == report.post_id
+                )
+            ).all()
 
-            if not report:
-                raise HTTPException(404)
+        for r in all_reports:
+            r.status = "Resolved"
 
-            if report.thread_id:
-
-                thread = session.get(Thread, report.thread_id)
-
-                if thread:
-                    session.delete(thread)
-                    session.flush()      # Execute the delete now
-
-            elif report.post_id:
-
-                post = session.get(Post, report.post_id)
-
-                if post:
-                    session.delete(post)
-                    session.flush()      # Execute the delete now
-
-            if report.thread_id:
-
-                all_reports = session.scalars(
-
-                    select(Report).where(
-                        Report.thread_id == report.thread_id
-                    )
-
-                ).all()
-
-            else:
-
-                all_reports = session.scalars(
-
-                    select(Report).where(
-                        Report.post_id == report.post_id
-                    )
-
-                ).all()
-
-            for r in all_reports:
-
-                r.status = "Resolved"
-
-            session.commit()
-
-            return {
-                "success": True
-            }
+        session.commit()
+        return {"success": True}
