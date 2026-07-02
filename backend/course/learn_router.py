@@ -8,8 +8,7 @@ from sqlalchemy import select, func
 
 from db.db import get_db_session
 from model.models import (
-    Course, CourseEnrollment, Module, ReadingMaterial,
-    InteractiveActivity, ActivitySubmission, ModuleProgress, User,
+    Course, CourseEnrollment, Module, InteractiveActivity, ActivitySubmission, ModuleProgress, User,
 )
 from user.auth_router import get_current_user
 from core.rate_limit import limiter

@@ -1,6 +1,5 @@
 /* ==========================================================================
    Cesffo — Design Tokens & Global Base
-<<<<<<< HEAD
    Visual direction: "Porcelain & Cobalt" (blue-and-white china + antique gold)
    Inspired by hand-painted delft porcelain: warm ivory body, deep cobalt
    florals, royal-navy fittings, antique-gold engraving.
@@ -31,33 +30,6 @@
   --color-bg: #f7f3ea;             /* porcelain ivory — page */
   --color-surface: #fffdf8;        /* warm white — cards */
   --color-surface-alt: #f1ebdd;    /* cream — subtle fills */
-=======
-   Visual direction: "Royal Finance" (royal blue + navy, gold accents)
-   ========================================================================== */
-
-:root {
-  /* Brand */
-  --color-primary: #1d4ed8;        /* royal blue-700 */
-  --color-primary-dark: #1e3a8a;   /* blue-900 (navy) */
-  --color-primary-hover: #1e40af;  /* blue-800 */
-  --color-primary-light: #3b82f6;  /* blue-500 */
-  --color-primary-50: #eff6ff;
-  --color-primary-100: #dbeafe;
-
-  --color-accent: #c8a13a;         /* royal gold */
-  --color-accent-dark: #9a7820;
-
-  /* Neutrals (cool, navy-leaning) */
-  --color-ink: #0f1f3d;            /* deep navy — headings */
-  --color-text: #334155;           /* slate-700 — body */
-  --color-muted: #64748b;          /* slate-500 — secondary */
-  --color-faint: #94a3b8;          /* slate-400 */
-  --color-border: #e2e8f0;         /* slate-200 */
-  --color-border-strong: #cbd5e1;  /* slate-300 */
-  --color-bg: #f7f9fc;             /* soft white-blue — page */
-  --color-surface: #ffffff;
-  --color-surface-alt: #eef2f9;    /* cool slate-100 */
->>>>>>> bc54562 (AI Gen, I still looking thru)
 
   /* Status */
   --color-success: #15803d;
@@ -69,19 +41,11 @@
 
   /* Semantic / theming aliases (overridden in dark mode) */
   --color-link: var(--color-primary);
-<<<<<<< HEAD
   --surface-translucent: rgba(255, 253, 248, 0.85);
   --footer-bg: #0e1f4d;            /* deep cobalt navy */
   --footer-text: #c2cbe6;
   --footer-heading: #ffffff;
   --footer-muted: #8a96b8;
-=======
-  --surface-translucent: rgba(255, 255, 255, 0.85);
-  --footer-bg: #0c1733;            /* deep royal navy */
-  --footer-text: #c3cee4;
-  --footer-heading: #ffffff;
-  --footer-muted: #8c9bbd;
->>>>>>> bc54562 (AI Gen, I still looking thru)
   --footer-border: rgba(255, 255, 255, 0.1);
 
   /* Typography */
@@ -107,7 +71,6 @@
   color-scheme: light;
 }
 
-<<<<<<< HEAD
 /* ----- Dark theme — "Cobalt Night" ------------------------------------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -134,32 +97,6 @@
   --color-bg: #0a1330;             /* deep cobalt navy (grip) */
   --color-surface: #111d3f;
   --color-surface-alt: #1a2750;
-=======
-/* ----- Dark theme ------------------------------------------------------ */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --color-primary: #3b82f6;        /* blue-500 */
-  --color-primary-dark: #2563eb;
-  --color-primary-hover: #60a5fa;
-  --color-primary-light: #60a5fa;
-  --color-primary-50: rgba(59, 130, 246, 0.14);
-  --color-primary-100: rgba(59, 130, 246, 0.30);
-  --color-link: #7cb0ff;
-
-  --color-accent: #d8b54a;         /* gold reads brighter on dark */
-  --color-accent-dark: #b8941f;
-
-  --color-ink: #eef2fb;
-  --color-text: #cdd7ea;
-  --color-muted: #93a0bd;
-  --color-faint: #5d6b8a;
-  --color-border: #1d2742;
-  --color-border-strong: #334063;
-  --color-bg: #0a1124;             /* deep navy */
-  --color-surface: #111a30;
-  --color-surface-alt: #1a2440;
->>>>>>> bc54562 (AI Gen, I still looking thru)
 
   --color-success: #34d399;
   --color-success-bg: rgba(16, 185, 129, 0.14);
@@ -168,19 +105,11 @@
   --color-warning: #fbbf24;
   --color-warning-bg: rgba(251, 191, 36, 0.14);
 
-<<<<<<< HEAD
   --surface-translucent: rgba(17, 29, 63, 0.85);
   --footer-bg: #060e24;
   --footer-text: #8a96b8;
   --footer-heading: #eef1fb;
   --footer-muted: #5c6a90;
-=======
-  --surface-translucent: rgba(17, 26, 48, 0.85);
-  --footer-bg: #060c1c;
-  --footer-text: #8c9bbd;
-  --footer-heading: #eef2fb;
-  --footer-muted: #5d6b8a;
->>>>>>> bc54562 (AI Gen, I still looking thru)
   --footer-border: rgba(255, 255, 255, 0.07);
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -234,11 +163,8 @@ a {
 a:hover {
   color: var(--color-link);
   text-decoration: underline;
-<<<<<<< HEAD
   text-decoration-color: var(--color-accent);
   text-underline-offset: 2px;
-=======
->>>>>>> bc54562 (AI Gen, I still looking thru)
 }
 
 code {
