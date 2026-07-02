@@ -66,6 +66,13 @@ jobs:
 
     - name: Execute Frontend Vitest Suite
       run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
+      
+    - name: Container System Logs on Failure
+      if: failure()
+      run: |
+        docker compose ps
+        docker compose logs backend
+        docker compose logs db
 
     - name: Graceful Teardown
       if: always()
