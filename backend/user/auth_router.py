@@ -30,7 +30,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         
         with get_db_session() as session:
             user = session.scalar(select(User).where(User.user_id == user_id))
-            if user.is_active == False or user.is_deleted == True:
+            if not user.is_active or user.is_deleted:
                 raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
 
 
@@ -46,7 +46,7 @@ async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
             user = session.scalar(select(User).where(User.user_id == current_user["user_id"]))
 
             # Defense in depth
-            if user.is_active == False or user.is_deleted == True or user.role != "admin":
+            if not user.is_active or user.is_deleted or user.role != "admin":
                 raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
     return current_user
 
