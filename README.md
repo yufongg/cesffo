@@ -134,7 +134,7 @@ free-text inputs **as the user types** and again before sending, as `Marketplace
 does:
 
 ```jsx
-import { sanitizeSearch, MAX_SEARCH_LENGTH } from './Security/Sanitize';
+import { sanitizeSearch, MAX_SEARCH_LENGTH } from '../components/Security/Sanitize';
 
 <input
   value={search}
@@ -230,7 +230,7 @@ a storage-exhaustion DoS. We validate in **two layers** and trust only the secon
 UX guard for instant feedback. One call runs every check:
 
 ```jsx
-import { validateImageUpload } from './Security/FileUpload';
+import { validateImageUpload } from '../components/Security/FileUpload';
 
 async function onPick(e) {
   const file = e.target.files[0];

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from pydantic import BaseModel, EmailStr, Field
@@ -26,17 +26,29 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         user_id: str = payload.get("sub")
         role: str = payload.get("role")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
+        
+        with get_db_session() as session:
+            user = session.scalar(select(User).where(User.user_id == user_id))
+            if user.is_active == False or user.is_deleted == True:
+                raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
+
+
         return {"user_id": user_id, "role": role}
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
 
 
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != ROLE_ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
+    with get_db_session() as session:
+            user = session.scalar(select(User).where(User.user_id == current_user["user_id"]))
 
+            # Defense in depth
+            if user.is_active == False or user.is_deleted == True or user.role != "admin":
+                raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
+    return current_user
 
 # --- Request/Response Schemas ---
 class UserRegistrationSchema(BaseModel):
@@ -68,10 +80,10 @@ class UserProfileResponse(BaseModel):
 
 # --- Endpoints ---
 @router.post("/register", response_model=AuthResponseSchema, status_code=status.HTTP_201_CREATED)
-async def register_user(request: UserRegistrationSchema):
+async def register_user(request: Request, req: UserRegistrationSchema):
     try:
         access_token, user_id, role = await register(
-            request.email, request.username, request.password, request.password_confirm
+            req.email, req.username, req.password, req.password_confirm
         )
     except PasswordsMismatchError:
         raise HTTPException(status_code=400, detail="Passwords do not match")
@@ -86,9 +98,9 @@ async def register_user(request: UserRegistrationSchema):
 
 
 @router.post("/login", response_model=AuthResponseSchema)
-async def login_user(request: UserLoginSchema):
+async def login_user(request: Request, req: UserLoginSchema):
     try:
-        access_token, user_id, role = await login(request.email, request.password)
+        access_token, user_id, role = await login(req.email, req.password)
     except AccountLockedError:
         raise HTTPException(
             status_code=423,
@@ -105,7 +117,7 @@ async def login_user(request: UserLoginSchema):
 
 
 @router.get("/getProfile", response_model=UserProfileResponse)
-async def get_profile(current_user: dict = Depends(get_current_user)):
+async def get_profile(request: Request, current_user: dict = Depends(get_current_user)):
     try:
         uid = parse_user_id(current_user["user_id"])
     except ValueError:
