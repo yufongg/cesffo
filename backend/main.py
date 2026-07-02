@@ -1,10 +1,10 @@
 import os
 
 from fastapi import FastAPI, Request, status #, HTTPException, Body, Form, Depends,
-from fastapi import FastAPI, status #, HTTPException, Body, Form, Depends,
 from fastapi.concurrency import asynccontextmanager
 from fastapi.responses import JSONResponse #, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
