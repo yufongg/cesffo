@@ -4,3 +4,4 @@ skips:
 exclude_dirs:
   - ./tests
   - ./.venv
+  - ./seed.py
