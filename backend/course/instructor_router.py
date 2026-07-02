@@ -12,6 +12,7 @@ from model.models import (
 )
 from common.sanitize import sanitize_html, strip_tags
 from common.audit import log_action
+from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid, client_ip as _client_ip
 from user.auth import ROLE_ADMIN
 from user.auth_router import require_instructor
 
@@ -24,17 +25,6 @@ ACTIVITY_TYPES = Literal["mcq_single", "mcq_multi", "short_answer"]
 
 
 # --- Helpers ---
-def _parse_uid(current_user: dict) -> UUID:
-    try:
-        return UUID(current_user["user_id"])
-    except (ValueError, KeyError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token subject")
-
-
-def _client_ip(request: Request) -> Optional[str]:
-    return request.client.host if request.client else None
-
-
 def _require_owned_course(session, course_id: UUID, current_user: dict) -> Course:
     """AS-04: an instructor may only act on their own courses. Never trust an
     instructor_id from the request body — always re-derive from the JWT and
@@ -372,6 +362,36 @@ async def list_modules(course_id: str, current_user: dict = Depends(require_inst
         return [_module_to_read(m) for m in modules]
 
 
+@router.get("/modules/{module_id}/materials", response_model=List[ReadingMaterialRead])
+async def list_materials(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        materials = session.scalars(
+            select(ReadingMaterial).where(ReadingMaterial.module_id == module.module_id).order_by(ReadingMaterial.order_index)
+        ).all()
+        return [_material_to_read(m) for m in materials]
+
+
+@router.get("/modules/{module_id}/media", response_model=List[MediaContentRead])
+async def list_media(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        media = session.scalars(
+            select(MediaContent).where(MediaContent.module_id == module.module_id).order_by(MediaContent.order_index)
+        ).all()
+        return [_media_to_read(m) for m in media]
+
+
+@router.get("/modules/{module_id}/activities", response_model=List[InteractiveActivityRead])
+async def list_activities(module_id: str, current_user: dict = Depends(require_instructor)):
+    with get_db_session() as session:
+        module = _require_owned_module(session, _to_uuid(module_id), current_user)
+        activities = session.scalars(
+            select(InteractiveActivity).where(InteractiveActivity.module_id == module.module_id).order_by(InteractiveActivity.order_index)
+        ).all()
+        return [_activity_to_read(a) for a in activities]
+
+
 @router.patch("/modules/{module_id}", response_model=ModuleRead)
 async def update_module(module_id: str, request: ModuleUpdate, current_user: dict = Depends(require_instructor)):
     with get_db_session() as session:
@@ -543,6 +563,27 @@ async def update_activity(activity_id: str, request: InteractiveActivityUpdate, 
     aid = _to_uuid(activity_id)
     with get_db_session() as session:
         activity = _require_owned_activity(session, aid, current_user)
+
+        # The update schema is partial and carries no activity_type, so the
+        # answer-key invariants enforced at creation must be re-checked here
+        # against the stored type — otherwise a PATCH could corrupt the key
+        # (e.g. an MCQ left with zero correct options).
+        if request.options is not None:
+            if activity.activity_type not in ("mcq_single", "mcq_multi"):
+                raise HTTPException(status_code=400, detail="Options apply only to MCQ activities")
+            if len(request.options) < 2:
+                raise HTTPException(status_code=400, detail="MCQ activities need at least 2 options")
+            correct_count = sum(1 for o in request.options if o.is_correct)
+            if activity.activity_type == "mcq_single" and correct_count != 1:
+                raise HTTPException(status_code=400, detail="mcq_single requires exactly one correct option")
+            if activity.activity_type == "mcq_multi" and correct_count < 1:
+                raise HTTPException(status_code=400, detail="mcq_multi requires at least one correct option")
+        if request.correct_answers is not None:
+            if activity.activity_type != "short_answer":
+                raise HTTPException(status_code=400, detail="Accepted answers apply only to short-answer activities")
+            if not any(a.strip() for a in request.correct_answers):
+                raise HTTPException(status_code=400, detail="short_answer requires at least one accepted answer")
+
         if request.title is not None:
             activity.title = strip_tags(request.title)
         if request.prompt is not None:
@@ -573,10 +614,3 @@ async def delete_activity(activity_id: str, request: Request, current_user: dict
             resource_id=aid, ip_address=_client_ip(request),
         )
         session.commit()
-
-
-def _to_uuid(raw: str) -> UUID:
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid resource id")

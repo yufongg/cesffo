@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { sanitizeHtml } from '../Security/SafeHtml';
 
 // This one mimics the SIT discussion board text area
 export default function RichTextEditor({ initialContent = '', onChange, placeholder = 'Write your post…' }) {
@@ -8,8 +9,11 @@ export default function RichTextEditor({ initialContent = '', onChange, placehol
 
   useEffect(() => {
     const el = editorRef.current;
-    if (el && el.innerHTML !== (initialContent || '')) {
-      el.innerHTML = initialContent || '';
+    // Run incoming content through the shared allow-list before assigning it to
+    // the live contentEditable, so a malformed/hostile draft can't seed markup.
+    const safe = sanitizeHtml(initialContent);
+    if (el && el.innerHTML !== safe) {
+      el.innerHTML = safe;
     }
   }, [initialContent]);
 

@@ -17,6 +17,23 @@ export function listPosts(threadId) {
   return apiFetch(`/api/v1/forum/threads/${threadId}/posts`);
 }
 
+// Reply to a thread. Open to any authenticated user (the backend only blocks
+// locked threads). Sent as FormData so optional images ride along.
+export function createForumPost(threadId, content, files = []) {
+  const formData = new FormData();
+  formData.append('content', content);
+  files.forEach((file) => formData.append('files', file));
+
+  return apiFetch(`/api/v1/forum/threads/${threadId}/posts`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export function deleteForumPost(postId) {
+  return apiFetch(`/api/v1/forum/posts/${postId}`, { method: 'DELETE' });
+}
+
 export function createForumThread(categoryId, title, content, files = []) {
   const formData = new FormData();
   formData.append('title', title);

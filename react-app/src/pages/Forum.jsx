@@ -9,6 +9,8 @@ import {
   createForumThread,
   updateForumThread,
   deleteForumThread,
+  createForumPost,
+  deleteForumPost,
   addPostAttachments,
   deletePostAttachment,
   forumWsUrl,
@@ -47,6 +49,12 @@ export default function Forum() {
     if (!selectedThread) return false;
     return isAdmin || norm(selectedThread.creator_id) === currentUserId;
   }, [selectedThread, isAdmin, currentUserId]);
+
+  // Whether the current user may manage a given reply (its author, or an admin).
+  const canManagePost = useCallback(
+    (post) => isAdmin || (!!post && norm(post.creator_id) === currentUserId),
+    [isAdmin, currentUserId],
+  );
 
   const flashError = useCallback((message) => {
     setError(message);
@@ -187,6 +195,30 @@ export default function Forum() {
     }
   }
 
+  async function handleReply({ content, files }) {
+    if (!selectedThread) return false;
+    try {
+      await createForumPost(selectedThread.thread_id, content, files);
+      await loadPosts(selectedThread.thread_id);
+      flashStatus('Reply posted.');
+      return true;
+    } catch (e) {
+      flashError(e.message);
+      return false;
+    }
+  }
+
+  async function handleDeletePost(postId) {
+    if (!window.confirm('Delete this reply?')) return;
+    try {
+      await deleteForumPost(postId);
+      if (selectedThread) await loadPosts(selectedThread.thread_id);
+      flashStatus('Reply deleted.');
+    } catch (e) {
+      flashError(e.message);
+    }
+  }
+
   async function handleDeleteAttachment(attachmentId) {
     if (!window.confirm('Remove this image?')) return;
     try {
@@ -262,9 +294,12 @@ export default function Forum() {
               thread={selectedThread}
               posts={posts}
               canManage={canManage}
+              canManagePost={canManagePost}
               onEdit={() => setViewMode('edit')}
               onDelete={handleDelete}
               onDeleteAttachment={handleDeleteAttachment}
+              onReply={handleReply}
+              onDeletePost={handleDeletePost}
             />
           </>
         )}

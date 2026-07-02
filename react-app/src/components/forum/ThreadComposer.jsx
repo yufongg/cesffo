@@ -1,17 +1,11 @@
 import React, { useState } from 'react';
 import RichTextEditor from './RichTextEditor';
 import { validateImageUpload, MAX_UPLOAD_BYTES } from '../Security/FileUpload';
+import { plainText } from '../../utils/forumText';
 
 const MAX_FILES = 5;
 const MAX_TITLE_LEN = 255;
 const MAX_CONTENT_LEN = 10000;
-
-function plainText(html) {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .trim();
-}
 
 // Shared create/edit form for a thread's original post. Client-side validation
 // mirrors the server (length caps + image allow-list via magic-byte sniffing in

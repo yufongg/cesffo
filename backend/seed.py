@@ -15,12 +15,6 @@ from course.instructor_router import (
     ModuleCreate, ReadingMaterialCreate, InteractiveActivityCreate, ActivityOptionInput,
 )
 
-
-# Schema (tables + columns) is owned by the application: main.py builds it from
-# the models on startup. This script only *inserts demo data*, so it assumes the
-# tables already exist — the standard flow runs it after the backend is up
-# (`docker compose exec -T backend python seed.py`).
-
 # XP a learner earns for completing a course, by difficulty level.
 XP_BY_LEVEL = {"Beginner": 500, "Intermediate": 800, "Advanced": 1200}
 # Level threshold used to keep User.level in step with the dashboard's formula.
