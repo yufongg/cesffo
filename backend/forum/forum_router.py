@@ -11,7 +11,6 @@ from fastapi import (
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from fastapi import Header
 
 from db.db import get_db_session
 from model.models import Category, Notification, Post, PostAttachment, Thread, User,ThreadLike, Report
@@ -28,7 +27,7 @@ from .schemas import (
     ThreadResponse,
     UpdatePostRequest,
     UpdateThreadRequest,
-    CreatePostRequest,
+    # CreatePostRequest,
     CreateReportRequest,
     ReportResponse,
     UserReportResponse
