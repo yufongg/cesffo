@@ -12,7 +12,7 @@ from .auth import (
     register, login, change_password, decode_access_token, parse_user_id,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
-    PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_ADMIN, SCOPE_PASSWORD_RESET,
+    PasswordResetRequiredError, MIN_PASSWORD_LENGTH, ROLE_INSTRUCTOR, ROLE_ADMIN, SCOPE_PASSWORD_RESET,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -54,14 +54,6 @@ async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
             # Defense in depth
             if not user.is_active or user.is_deleted or user.role != "admin":
                 raise HTTPException(status_code=401, detail="Invalid Credentials or Banned Account")
-    return current_user
-
-
-async def require_instructor(current_user: dict = Depends(get_current_user)) -> dict:
-    """Deny-by-default gate for course-authoring endpoints (SR-03). Admins are
-    also allowed through so staff can manage any course if needed."""
-    if current_user["role"] not in (ROLE_INSTRUCTOR, ROLE_ADMIN):
-        raise HTTPException(status_code=403, detail="Instructor access required")
     return current_user
 
 
@@ -146,9 +138,9 @@ async def login_user(request: Request, req: UserLoginSchema):
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "force_password_reset": True,
+                "force_password_reset": True, # nosec B105
                 "reset_token": e.reset_token,
-                "token_type": "reset",
+                "token_type": "reset", # nosec B105
             },
         )
     except AccountLockedError:
