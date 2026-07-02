@@ -24,6 +24,10 @@ class User(Base):
     force_password_reset = Column(Boolean, default=False, nullable=False)  # set True after an admin password reset
     is_deleted = Column(Boolean, default=False, nullable=False)      # soft-delete flag
 
+    #? Gamification / leaderboard fields
+    xp = Column(Integer, default=0, nullable=False)                 # lifetime XP earned (drives leaderboards)
+    level = Column(Integer, default=1, nullable=False)              # derived from xp; stored for fast ranking
+
     # Relationships
     # enrollments = relationship("CourseEnrollment", back_populates="student", cascade="all, delete-orphan")
     cart = relationship("Cart", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -114,7 +118,8 @@ class Course(Base):
     course_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     instructor_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
     course_name = Column(String(255), nullable=False)
-    
+    xp_reward = Column(Integer, default=0, nullable=False)        # XP awarded to a learner on completion
+
     content = Column(JSON, nullable=False, default=dict)          # Maps structure JSON block
     tags = Column(JSON, nullable=False, default=list)             # Maps str[] as JSON Array array list
     prerequirements = Column(JSON, nullable=False, default=dict)  # Maps dict parameters

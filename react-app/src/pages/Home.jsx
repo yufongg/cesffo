@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+
+function CheckIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
 
 export default function Home() {
   const [email, setEmail] = useState('');
@@ -45,7 +54,7 @@ export default function Home() {
       if (data.user_role === 'admin') {
         navigate('/admin/dashboard');
       } else {
-        navigate('/updateProfile');
+        navigate('/courses');
       }
     } catch {
       setError('Network error. Please try again.');
@@ -55,60 +64,72 @@ export default function Home() {
   }
 
   return (
-    <div className="App">
-      <div className="App-header">
-        <h2>Sign In</h2>
-      </div>
+    <div className="auth">
+      <aside className="auth__aside">
+        <span className="auth__aside-brand">
+          <span className="brand__mark">C</span>
+          Cesffo
+        </span>
 
-      <div style={{ maxWidth: '360px', margin: '40px auto', padding: '0 16px' }}>
-        <form onSubmit={handleSubmit} noValidate>
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="email" style={{ display: 'block', marginBottom: '4px' }}>
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              autoComplete="email"
-              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-            />
-          </div>
+        <h1 className="auth__headline">Build real financial confidence.</h1>
+        <p className="auth__sub">
+          Sign in to continue your courses, track your progress, and put practical
+          money skills to work.
+        </p>
 
-          <div style={{ marginBottom: '16px' }}>
-            <label htmlFor="password" style={{ display: 'block', marginBottom: '4px' }}>
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              required
-              autoComplete="current-password"
-              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
-            />
-          </div>
+        <ul className="auth__points">
+          <li><CheckIcon /> Structured lessons on budgeting, saving &amp; investing</li>
+          <li><CheckIcon /> Interactive tools and real-world scenarios</li>
+          <li><CheckIcon /> Learn at your own pace, on any device</li>
+        </ul>
+      </aside>
 
-          {error && (
-            <p role="alert" style={{ color: '#c0392b', marginBottom: '12px' }}>
-              {error}
-            </p>
-          )}
+      <main className="auth__main">
+        <div className="auth__form">
+          <h2 className="auth__title">Welcome back</h2>
+          <p className="auth__lead">Sign in to your Cesffo account.</p>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{ width: '100%', padding: '10px', cursor: loading ? 'not-allowed' : 'pointer' }}
-          >
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
-        </form>
-      </div>
+          <form onSubmit={handleSubmit} noValidate>
+            <div className="field">
+              <label htmlFor="email" className="label">Email</label>
+              <input
+                id="email"
+                type="email"
+                className="input"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="password" className="label">Password</label>
+              <input
+                id="password"
+                type="password"
+                className="input"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            {error && <p role="alert" className="alert alert--error">{error}</p>}
+
+            <button type="submit" disabled={loading} className="btn btn--primary btn--block">
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <p className="auth__alt">
+            New to Cesffo? <Link to="/register">Create an account</Link>
+          </p>
+        </div>
+      </main>
     </div>
   );
 }
