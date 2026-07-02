@@ -1,10 +1,9 @@
 import os
-import re
 import secrets
 from argon2 import PasswordHasher, exceptions
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
-from jose import JWTError, jwt
+from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
 from typing import Tuple
@@ -187,8 +186,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
             try:
                 _ph.verify(_DUMMY_HASH, password)
             except Exception:
-                pass
-            raise UserNotFoundError()
+                raise UserNotFoundError()
 
         # Banned or soft-deleted accounts must never authenticate.
         if existing_user.is_deleted or not existing_user.is_active:
