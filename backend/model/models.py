@@ -40,6 +40,27 @@ class User(Base):
     liked_posts = relationship("PostLikes", back_populates="user", cascade="all, delete-orphan")
 
 
+# --- PENDING REGISTRATION (email verification) ---
+class PendingRegistration(Base):
+    """A signup awaiting email verification. No account exists until the emailed
+    6-digit code is confirmed; only then is a real User row created (see
+    user.auth.verify_registration). Holds NO plaintext PII — only a blind index
+    of the email (for lookup) plus Argon2 hashes of the password and the code."""
+    __tablename__ = "pending_registration"
+
+    pending_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Deterministic lookup key for the email; the email itself is never stored
+    # here — the client re-supplies it at the verify step (see verify_registration).
+    email_bidx = Column(String(64), nullable=False, unique=True, index=True)
+    username = Column(String(150), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)     # Argon2 hash, moved onto User on success
+    code_hash = Column(String(255), nullable=False)         # Argon2 hash of the 6-digit code
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 # --- CATEGORY MODEL ---
 class Category(Base):
     __tablename__ = "category"

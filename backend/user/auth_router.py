@@ -12,18 +12,21 @@ from sqlalchemy import select
 from core.rate_limit import limiter
 from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from common.audit import log_action
-from common.email import send_password_reset_email
+from common.email import send_password_reset_email, send_verification_code_email
 from common.security import client_ip as _client_ip, parse_uid as _parse_uid, to_uuid as _to_uuid
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
-    register, login, change_password, change_password_authenticated, update_profile,
+    request_registration, verify_registration, resend_registration_code,
+    login, change_password, change_password_authenticated, update_profile,
     request_password_reset, decode_access_token,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, InvalidCurrentPasswordError, ResetTokenInvalidError,
-    MIN_PASSWORD_LENGTH, RESET_LINK_EXPIRE_MINUTES, ROLE_ADMIN, ROLE_INSTRUCTOR,
+    InvalidVerificationError,
+    MIN_PASSWORD_LENGTH, RESET_LINK_EXPIRE_MINUTES, VERIFICATION_CODE_EXPIRE_MINUTES,
+    ROLE_ADMIN, ROLE_INSTRUCTOR,
     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
 
@@ -35,6 +38,12 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 # Returned identically whether or not the email exists — anti-enumeration.
 _GENERIC_RESET_MESSAGE = (
     "If an account exists for that email, a password reset link has been sent."
+)
+
+# Returned by /register and /register/resend regardless of whether the details
+# are valid or a signup is pending — keeps both from leaking which emails exist.
+_GENERIC_VERIFICATION_MESSAGE = (
+    "If those details are valid, a 6-digit verification code has been sent to your email."
 )
 
 reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -130,6 +139,15 @@ class ForgotPasswordSchema(BaseModel):
     email: EmailStr
 
 
+class VerifyRegistrationSchema(BaseModel):
+    email: EmailStr
+    code: str = Field(..., pattern=r"^\d{6}$", description="The 6-digit code emailed at registration.")
+
+
+class ResendCodeSchema(BaseModel):
+    email: EmailStr
+
+
 class UpdateProfileSchema(BaseModel):
     # Both optional (change either or both); the "at least one" rule is enforced in the route.
     username: str | None = Field(
@@ -144,12 +162,28 @@ class ChangeMyPasswordSchema(BaseModel):
     new_password_confirm: str
 
 
+# --- Registration audit (SR-11) ---
+def _record_registration_event(*, action, user_id, ip, outcome="success"):
+    #! Append registration events to the append-only audit log in their own
+    #! transaction. NEVER logs the email or the code — only action / outcome / IP.
+    with get_db_session() as session:
+        log_action(session, user_id=user_id, action=action, outcome=outcome, ip_address=ip)
+
+
 # --- Endpoints ---
-@router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")  # throttle automated account creation / spam signups
-async def register_user(request: Request, req: UserRegistrationSchema, response: Response):
+@router.post("/register", response_model=AuthResponseSchema)
+@limiter.limit("5/minute")  # throttle automated account creation / verification-email spam
+async def register_user(
+    request: Request,
+    req: UserRegistrationSchema,
+    background_tasks: BackgroundTasks,
+):
+    """Step 1 of signup. Validates the details and emails a 6-digit code; the
+    account is NOT created and the user is NOT logged in until the code is
+    confirmed at /register/verify."""
+    ip = _client_ip(request)
     try:
-        access_token, user_id, role = await register(
+        email, username, code = await request_registration(
             req.email, req.username, req.password, req.password_confirm
         )
     except PasswordsMismatchError:
@@ -161,10 +195,64 @@ async def register_user(request: Request, req: UserRegistrationSchema, response:
     except DatabaseError:
         raise HTTPException(status_code=500, detail="Registration failed due to a server error")
 
-    # Registration auto-logs the user in: drop the session cookie and hand back
-    # the (non-sensitive) role/id the SPA uses to render the right view.
+    #! Send the code AFTER the response so SMTP latency/errors stay off the request path.
+    background_tasks.add_task(
+        send_verification_code_email, email, username, code, VERIFICATION_CODE_EXPIRE_MINUTES
+    )
+    background_tasks.add_task(
+        _record_registration_event, action="register_request", user_id=None, ip=ip, outcome="success"
+    )
+    return AuthResponseSchema(detail=_GENERIC_VERIFICATION_MESSAGE)
+
+
+@router.post("/register/verify", response_model=LoginResponse)
+@limiter.limit("10/minute")  # blunt online guessing of the 6-digit code per IP
+async def verify_registration_route(
+    request: Request,
+    req: VerifyRegistrationSchema,
+    response: Response,
+    background_tasks: BackgroundTasks,
+):
+    """Step 2 of signup. Confirms the emailed code; on success the account is
+    created and a session cookie is issued (auto-login)."""
+    ip = _client_ip(request)
+    try:
+        access_token, user_id, role = await verify_registration(req.email, req.code)
+    except InvalidVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    except ExistingUserError as e:
+        raise HTTPException(status_code=409, detail=f"There is an existing user with the same {e.field_taken}")
+    except DatabaseError:
+        raise HTTPException(status_code=500, detail="Registration failed due to a server error")
+
+    background_tasks.add_task(
+        _record_registration_event, action="register_verify", user_id=user_id, ip=ip, outcome="success"
+    )
+    # Verification succeeded: establish a real session, same as login.
     set_auth_cookie(response, access_token)
     return LoginResponse(user_role=role, user_id=user_id.hex)
+
+
+@router.post("/register/resend", response_model=AuthResponseSchema)
+@limiter.limit("3/minute")  # tight cap: this endpoint triggers outbound email
+async def resend_registration_code_route(
+    request: Request,
+    req: ResendCodeSchema,
+    background_tasks: BackgroundTasks,
+):
+    """Re-send the verification code for an in-flight signup. Always returns the
+    same generic message (and is cooldown-limited server-side), so it reveals
+    nothing about which signups are pending."""
+    try:
+        result = await resend_registration_code(req.email)
+    except Exception:
+        result = None
+    if result:
+        email, username, code = result
+        background_tasks.add_task(
+            send_verification_code_email, email, username, code, VERIFICATION_CODE_EXPIRE_MINUTES
+        )
+    return AuthResponseSchema(detail=_GENERIC_VERIFICATION_MESSAGE)
 
 
 def _record_login_attempt(*, user_id, outcome, ip, reason=None):

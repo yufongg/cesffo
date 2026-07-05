@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, Tuple
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from core import account_lockout
 
 from common.encryption import blind_index
 from db.db import get_db_session
-from model.models import User
+from model.models import User, PendingRegistration
 
 # Username policy mirrors the registration schema (router-level Field bounds).
 USERNAME_MIN_LENGTH = 3
@@ -36,6 +37,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30    # how long a normal session token is valid
 RESET_TOKEN_EXPIRE_MINUTES = 10     # forced-reset token issued at login
 RESET_LINK_EXPIRE_MINUTES = 30      # self-service "forgot password" link
 MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
+
+#$ Email-verification (registration 2FA) settings.
+VERIFICATION_CODE_EXPIRE_MINUTES = 10       # how long an emailed 6-digit code stays valid
+MAX_VERIFICATION_ATTEMPTS = 5               # wrong-code guesses before the pending signup is burned
+VERIFICATION_RESEND_COOLDOWN_SECONDS = 60   # min gap between code emails (anti inbox-bombing)
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
@@ -93,6 +99,12 @@ class ExistingUserError(Exception):
     def __init__(self, field_taken):
         super().__init__()
         self.field_taken = field_taken
+
+class InvalidVerificationError(Exception):
+    """Raised for any bad/expired/exhausted/unknown email-verification code. A
+    single generic failure so the verify endpoint can't be used to probe which
+    signups are currently pending."""
+    pass
 
 class UserNotFoundError(Exception):
     pass
@@ -221,7 +233,21 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
 
-async def register(email: EmailStr, username: str, password: str, password_confirm: str) -> Tuple[str, UUID, str]:
+def generate_verification_code() -> str:
+    #* 6-digit numeric code from a CSPRNG (secrets), zero-padded so "000123" is valid.
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+async def request_registration(
+    email: EmailStr, username: str, password: str, password_confirm: str
+) -> Tuple[str, str, str]:
+    """Step 1 of signup: validate the details and stage a pending registration
+    guarded by an emailed 6-digit code. NO User row is created here — the account
+    only comes into existence once the code is confirmed (see verify_registration).
+
+    Returns ``(email, username, code)`` so the caller can send the code out of
+    band; the code is NEVER returned to the client. Raises PasswordsMismatchError,
+    PasswordPolicyError, or ExistingUserError (email/username already taken)."""
     if password != password_confirm:
         raise PasswordsMismatchError()
 
@@ -231,32 +257,171 @@ async def register(email: EmailStr, username: str, password: str, password_confi
     #! Enforce the password policy before touching the DB or hashing (cheap reject first).
     validate_password_strength(password, username=username, email=email)
 
-    with get_db_session() as session:
-        #? Uniqueness checks: email by blind index (it's encrypted), username by value.
-        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
-            raise ExistingUserError("email")
+    email_bidx = blind_index(email)
+    code = generate_verification_code()
 
+    with get_db_session() as session:
+        #* Opportunistic cleanup: drop expired pending signups so abandoned ones
+        #* don't permanently squat on a username/email.
+        session.query(PendingRegistration).filter(
+            PendingRegistration.code_expires < datetime.now(timezone.utc)
+        ).delete(synchronize_session=False)
+
+        #? Uniqueness against real accounts: email by blind index (it's encrypted), username by value.
+        if session.scalar(select(User).where(User.email_bidx == email_bidx)):
+            raise ExistingUserError("email")
         if session.scalar(select(User).where(User.username == username)):
             raise ExistingUserError("username")
+        #? A different in-flight signup already holding this username blocks it too.
+        if session.scalar(
+            select(PendingRegistration).where(
+                PendingRegistration.username == username,
+                PendingRegistration.email_bidx != email_bidx,
+            )
+        ):
+            raise ExistingUserError("username")
 
-        hashed_password = hash_password(password)
+        #* Overwrite any prior pending signup for THIS email (re-register / issue a fresh code).
+        existing = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+        if existing:
+            session.delete(existing)
+            session.flush()
+
+        now = datetime.now(timezone.utc)
+        pending = PendingRegistration(
+            email_bidx=email_bidx,
+            username=username,
+            password_hash=hash_password(password),
+            code_hash=hash_password(code),   #! store only the Argon2 hash of the code, never the code itself
+            code_expires=now + timedelta(minutes=VERIFICATION_CODE_EXPIRE_MINUTES),
+            attempts=0,
+            last_sent_at=now,
+        )
+        session.add(pending)
+        try:
+            session.commit()
+        except IntegrityError:
+            #! Lost a race on the unique(email_bidx)/unique(username) constraint.
+            raise ExistingUserError("username")
+
+    return email, username, code
+
+
+async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, str]:
+    """Step 2 of signup: confirm the emailed code and, only if it matches, create
+    the real User (auto-logging them in with a session token). The code is
+    single-use, time-limited, and capped at MAX_VERIFICATION_ATTEMPTS guesses.
+
+    Returns ``(access_token, user_id, role)`` on success. Raises
+    InvalidVerificationError for any bad/expired/exhausted/unknown code (one
+    generic failure — no enumeration oracle), or ExistingUserError if the
+    email/username got taken between step 1 and now."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+
+    with get_db_session() as session:
+        pending = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+
+        #! Unknown signup: still burn the same Argon2 time as a real check so
+        #! "no pending" and "wrong code" are indistinguishable by timing.
+        if pending is None:
+            try:
+                _ph.verify(_DUMMY_HASH, code)
+            except Exception:  # nosec B110
+                pass
+            raise InvalidVerificationError()
+
+        now = datetime.now(timezone.utc)
+        expires = pending.code_expires
+        if expires.tzinfo is None:               # tolerate a naive value from the DB driver
+            expires = expires.replace(tzinfo=timezone.utc)
+
+        #! Expired or out of guesses: burn the pending signup — a fresh code must
+        #! be requested. Fail generically either way.
+        if now > expires or pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
+            session.delete(pending)
+            session.commit()
+            raise InvalidVerificationError()
 
         try:
-            user = User(
-                email=email,
-                email_bidx=blind_index(email),
-                username=username,
-                password=hashed_password,
-                role=ROLE_STUDENT,  # self-service signup can NEVER pick its own role (privilege-escalation guard)
-            )
-            session.add(user)
+            _ph.verify(pending.code_hash, code)
+        except exceptions.VerifyMismatchError:
+            pending.attempts += 1
+            if pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
+                session.delete(pending)          #! last allowed guess used up — burn it
+            session.commit()
+            raise InvalidVerificationError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal verification error")
+
+        #* Code is correct. Re-check uniqueness (someone may have claimed the
+        #* email/username since step 1), then create the account and consume the
+        #* pending row in the same transaction.
+        if session.scalar(select(User).where(User.email_bidx == email_bidx)):
+            session.delete(pending)
+            session.commit()
+            raise ExistingUserError("email")
+        if session.scalar(select(User).where(User.username == pending.username)):
+            session.delete(pending)
+            session.commit()
+            raise ExistingUserError("username")
+
+        user = User(
+            email=email,                     # encrypted at rest by the column type; re-supplied by the client
+            email_bidx=email_bidx,
+            username=pending.username,
+            password=pending.password_hash,  # already Argon2-hashed at request time
+            role=ROLE_STUDENT,               # self-service signup can NEVER pick its own role
+        )
+        session.add(user)
+        session.delete(pending)
+        try:
             session.commit()
             session.refresh(user)
+        except IntegrityError:
+            raise ExistingUserError("username")
 
-            token = create_access_token(user.user_id.hex, user.role)
-            return token, user.user_id, user.role
-        except Exception:
-            raise DatabaseError()
+        token = create_access_token(user.user_id.hex, user.role)
+        return token, user.user_id, user.role
+
+
+async def resend_registration_code(email: EmailStr) -> Optional[Tuple[str, str, str]]:
+    """Re-issue a fresh code for an in-flight signup, subject to a cooldown that
+    stops the endpoint being used to flood someone's inbox.
+
+    Returns ``(email, username, code)`` when a new code was issued, or ``None``
+    (no pending signup, or still within the cooldown) — the caller returns an
+    identical generic response either way so nothing leaks about pending signups."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        pending = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+        if pending is None:
+            return None
+
+        last_sent = pending.last_sent_at
+        if last_sent.tzinfo is None:
+            last_sent = last_sent.replace(tzinfo=timezone.utc)
+        if (now - last_sent).total_seconds() < VERIFICATION_RESEND_COOLDOWN_SECONDS:
+            return None                          #! within cooldown — don't send another email
+
+        code = generate_verification_code()
+        pending.code_hash = hash_password(code)
+        pending.code_expires = now + timedelta(minutes=VERIFICATION_CODE_EXPIRE_MINUTES)
+        pending.attempts = 0                     # fresh code resets the guess counter
+        pending.last_sent_at = now
+        username = pending.username
+        session.commit()
+
+    return email, username, code
 
 
 async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:

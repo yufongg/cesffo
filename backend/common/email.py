@@ -99,3 +99,36 @@ def send_password_reset_email(to_email: str, username: str, reset_link: str, exp
     )
 
     send_email(to_email, subject, text_body, html_body)
+
+
+def send_verification_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
+    """Compose and send the registration email-verification code.
+
+    The email carries a short-lived, single-use 6-digit code the user types back
+    to prove they own the address; no account exists until it is confirmed. The
+    username is HTML-escaped before being placed in the HTML part (the code is
+    digits only) to prevent injection into the message body.
+    """
+    subject = "Your Cesffo verification code"
+
+    text_body = (
+        f"Hi {username},\n\n"
+        "Use this code to finish creating your Cesffo account:\n\n"
+        f"    {code}\n\n"
+        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
+        "If you didn't try to sign up, you can safely ignore this email.\n\n"
+        "— The Cesffo team"
+    )
+
+    safe_user = html.escape(username)
+    safe_code = html.escape(code)
+    html_body = (
+        f"<p>Hi {safe_user},</p>"
+        "<p>Use this code to finish creating your Cesffo account:</p>"
+        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
+        f"<p>The code expires in {expires_minutes} minutes and can only be used "
+        "once. If you didn't try to sign up, you can safely ignore this email.</p>"
+        "<p>— The Cesffo team</p>"
+    )
+
+    send_email(to_email, subject, text_body, html_body)
