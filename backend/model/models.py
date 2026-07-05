@@ -58,6 +58,7 @@ class PendingRegistration(Base):
     code_expires = Column(DateTime(timezone=True), nullable=False)
     attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
     last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)      # code emails sent so far, capped server-side
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
@@ -81,6 +82,7 @@ class LoginChallenge(Base):
     code_expires = Column(DateTime(timezone=True), nullable=False)
     attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
     last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)      # code emails sent so far, capped server-side
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 

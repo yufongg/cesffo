@@ -67,6 +67,9 @@ def ensure_schema():
         # Forum: column added to the pre-existing post table by the merged
         # discussion-forum feature (new forum tables are made by create_all()).
         'ALTER TABLE post ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE',
+        # OTP resend ceiling (anti inbox-bombing) — see MAX_CODE_SENDS.
+        'ALTER TABLE pending_registration ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
+        'ALTER TABLE login_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
     ]
     with engine.begin() as conn:
         for statement in migrations:

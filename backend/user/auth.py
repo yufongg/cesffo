@@ -13,7 +13,8 @@ from sqlalchemy.exc import IntegrityError
 from typing import Optional, Tuple
 from uuid import UUID
 
-from core import account_lockout
+from core.account_lockout import LOCKOUT_TIMER
+from core.securedCookie import ACCESS_TOKEN_EXPIRE_MINUTES
 
 from common.encryption import blind_index
 from db.db import get_db_session
@@ -33,7 +34,7 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 
 #$ Token / lockout lifetimes (minutes, except the attempt count). Tuned to the security NFRs.
-ACCESS_TOKEN_EXPIRE_MINUTES = 30    # how long a normal session token is valid
+#$ ACCESS_TOKEN_EXPIRE_MINUTES is imported from core.securedCookie (single source of truth).
 RESET_TOKEN_EXPIRE_MINUTES = 10     # forced-reset token issued at login
 RESET_LINK_EXPIRE_MINUTES = 30      # self-service "forgot password" link
 MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
@@ -42,6 +43,10 @@ MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
 VERIFICATION_CODE_EXPIRE_MINUTES = 10       # how long an emailed 6-digit code stays valid
 MAX_VERIFICATION_ATTEMPTS = 5               # wrong-code guesses before the pending signup is burned
 VERIFICATION_RESEND_COOLDOWN_SECONDS = 60   # min gap between code emails (anti inbox-bombing)
+# Hard ceiling on code emails per pending signup / login challenge (initial counts
+# as 1). A fresh signup/login is required once hit — bounds inbox-bombing on top of
+# the per-request cooldown.
+MAX_CODE_SENDS = 5
 
 #$ Login two-factor (login 2FA) settings. Mirrors the registration code above:
 #$ same lifetime, guess cap and resend cooldown, applied to the login challenge.
@@ -429,6 +434,9 @@ async def resend_registration_code(email: EmailStr) -> Optional[Tuple[str, str, 
         if pending is None:
             return None
 
+        if (pending.sends or 0) >= MAX_CODE_SENDS:
+            return None
+
         last_sent = pending.last_sent_at
         if last_sent.tzinfo is None:
             last_sent = last_sent.replace(tzinfo=timezone.utc)
@@ -440,6 +448,7 @@ async def resend_registration_code(email: EmailStr) -> Optional[Tuple[str, str, 
         pending.code_expires = now + timedelta(minutes=VERIFICATION_CODE_EXPIRE_MINUTES)
         pending.attempts = 0                     # fresh code resets the guess counter
         pending.last_sent_at = now
+        pending.sends = (pending.sends or 0) + 1
         username = pending.username
         session.commit()
 
@@ -466,10 +475,25 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if existing_user.is_deleted or not existing_user.is_active:
             raise InactiveAccountError()
 
+        #! Lockout handled inline on THIS session so the read and write of
+        #! auth_attempts/lockout_timestamp stay in one transaction (no second-session race).
         if existing_user.auth_attempts >= MAX_AUTH_ATTEMPTS:
-            if account_lockout(existing_user.username):
-                raise AccountLockedError()
+            now = datetime.now(timezone.utc)
+            lock_start = existing_user.lockout_timestamp
+            if lock_start is not None and lock_start.tzinfo is None:
+                lock_start = lock_start.replace(tzinfo=timezone.utc)
 
+            if lock_start is None:
+                #! Commit the stamp before raising — the raise rolls back the session,
+                #! so it must persist first or the lockout window never starts.
+                existing_user.lockout_timestamp = now
+                session.commit()
+                raise AccountLockedError()
+            if now < lock_start + timedelta(seconds=LOCKOUT_TIMER):
+                raise AccountLockedError()
+            # Window elapsed: clear it and let this attempt be evaluated normally below.
+            existing_user.lockout_timestamp = None
+            existing_user.auth_attempts = 0
 
         try:
             _ph.verify(existing_user.password, password)
@@ -608,6 +632,9 @@ async def resend_login_otp(email: EmailStr) -> Optional[Tuple[str, str, str]]:
         if challenge is None:
             return None
 
+        if (challenge.sends or 0) >= MAX_CODE_SENDS:
+            return None
+
         last_sent = challenge.last_sent_at
         if last_sent.tzinfo is None:
             last_sent = last_sent.replace(tzinfo=timezone.utc)
@@ -619,6 +646,7 @@ async def resend_login_otp(email: EmailStr) -> Optional[Tuple[str, str, str]]:
         challenge.code_expires = now + timedelta(minutes=LOGIN_OTP_EXPIRE_MINUTES)
         challenge.attempts = 0                   # fresh code resets the guess counter
         challenge.last_sent_at = now
+        challenge.sends = (challenge.sends or 0) + 1
         username = user.username
 
     return email, username, code

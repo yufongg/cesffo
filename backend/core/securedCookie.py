@@ -4,6 +4,8 @@ from typing import Optional
 from fastapi import Request, Response, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
+# Single source of truth for the access-token lifetime (auth.py imports this) so the
+# JWT `exp` and the cookie `max_age` can never drift apart.
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 #$ Send the cookie over HTTPS only in production; stays off in dev so localhost works.
