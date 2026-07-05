@@ -132,3 +132,38 @@ def send_verification_code_email(to_email: str, username: str, code: str, expire
     )
 
     send_email(to_email, subject, text_body, html_body)
+
+
+def send_login_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
+    """Compose and send the login two-factor code.
+
+    Sent after the password is verified: the user types this short-lived,
+    single-use 6-digit code back to complete sign-in; no session is issued until
+    it is confirmed. The username is HTML-escaped before being placed in the HTML
+    part (the code is digits only) to prevent injection into the message body.
+    """
+    subject = "Your Cesffo sign-in code"
+
+    text_body = (
+        f"Hi {username},\n\n"
+        "Use this code to finish signing in to your Cesffo account:\n\n"
+        f"    {code}\n\n"
+        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
+        "If you didn't try to sign in, someone may have your password — please "
+        "reset it as soon as possible.\n\n"
+        "— The Cesffo team"
+    )
+
+    safe_user = html.escape(username)
+    safe_code = html.escape(code)
+    html_body = (
+        f"<p>Hi {safe_user},</p>"
+        "<p>Use this code to finish signing in to your Cesffo account:</p>"
+        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
+        f"<p>The code expires in {expires_minutes} minutes and can only be used "
+        "once. If you didn't try to sign in, someone may have your password — "
+        "please reset it as soon as possible.</p>"
+        "<p>— The Cesffo team</p>"
+    )
+
+    send_email(to_email, subject, text_body, html_body)

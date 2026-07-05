@@ -61,6 +61,29 @@ class PendingRegistration(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+# --- LOGIN CHALLENGE (login-time 2FA) ---
+class LoginChallenge(Base):
+    """A login awaiting its emailed 6-digit code (second factor). Created only
+    after the password is verified; no session is issued until the code is
+    confirmed (see user.auth.verify_login_otp). Holds NO plaintext PII — only the
+    user id and an Argon2 hash of the code. One in-flight challenge per user: a
+    fresh login attempt overwrites the previous row."""
+    __tablename__ = "login_challenge"
+
+    challenge_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # One outstanding challenge per user; a new login attempt replaces the old one.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    code_hash = Column(String(255), nullable=False)         # Argon2 hash of the 6-digit code
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 # --- CATEGORY MODEL ---
 class Category(Base):
     __tablename__ = "category"

@@ -12,20 +12,24 @@ from sqlalchemy import select
 from core.rate_limit import limiter
 from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from common.audit import log_action
-from common.email import send_password_reset_email, send_verification_code_email
+from common.email import (
+    send_password_reset_email, send_verification_code_email, send_login_code_email,
+)
 from common.security import client_ip as _client_ip, parse_uid as _parse_uid, to_uuid as _to_uuid
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
 from .auth import (
     request_registration, verify_registration, resend_registration_code,
-    login, change_password, change_password_authenticated, update_profile,
+    login, verify_login_otp, resend_login_otp,
+    change_password, change_password_authenticated, update_profile,
     request_password_reset, decode_access_token,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, InvalidCurrentPasswordError, ResetTokenInvalidError,
-    InvalidVerificationError,
+    InvalidVerificationError, LoginOtpRequiredError, InvalidLoginOtpError,
     MIN_PASSWORD_LENGTH, RESET_LINK_EXPIRE_MINUTES, VERIFICATION_CODE_EXPIRE_MINUTES,
+    LOGIN_OTP_EXPIRE_MINUTES,
     ROLE_ADMIN, ROLE_INSTRUCTOR,
     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
@@ -44,6 +48,13 @@ _GENERIC_RESET_MESSAGE = (
 # are valid or a signup is pending — keeps both from leaking which emails exist.
 _GENERIC_VERIFICATION_MESSAGE = (
     "If those details are valid, a 6-digit verification code has been sent to your email."
+)
+
+# Returned by /login (on correct password) and /login/resend regardless of whether
+# the account exists — the OTP email only actually goes out for a real, eligible
+# account, but the response is identical so neither leaks which emails are registered.
+_GENERIC_LOGIN_OTP_MESSAGE = (
+    "If those credentials are valid, a 6-digit sign-in code has been sent to your email."
 )
 
 reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -145,6 +156,15 @@ class VerifyRegistrationSchema(BaseModel):
 
 
 class ResendCodeSchema(BaseModel):
+    email: EmailStr
+
+
+class VerifyLoginOtpSchema(BaseModel):
+    email: EmailStr
+    code: str = Field(..., pattern=r"^\d{6}$", description="The 6-digit code emailed after the password step.")
+
+
+class ResendLoginOtpSchema(BaseModel):
     email: EmailStr
 
 
@@ -278,12 +298,33 @@ def _record_password_reset_request(*, user_id, ip):
         )
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 @limiter.limit("10/minute")  # blunt brute-force / credential-stuffing per IP (lockout guards per-account)
-async def login_user(request: Request, req: UserLoginSchema, response: Response):
+async def login_user(
+    request: Request,
+    req: UserLoginSchema,
+    background_tasks: BackgroundTasks,
+):
+    """Step 1 of login. Verifies the password only — it does NOT establish a
+    session. On success a 6-digit code is emailed and the client must confirm it
+    at /login/verify (login 2FA). The forced-password-reset path is unchanged and
+    still takes precedence over the second factor."""
     ip = _client_ip(request)
     try:
-        access_token, user_id, role = await login(req.email, req.password)
+        await login(req.email, req.password)
+    except LoginOtpRequiredError as e:
+        # Password was correct: the account owes a second factor now. Record the
+        # password step as a success and email the code AFTER responding so SMTP
+        # latency/errors stay off the request path.
+        _record_login_attempt(user_id=None, outcome="success", ip=ip, reason="otp_sent")
+        background_tasks.add_task(
+            send_login_code_email, e.email, e.username, e.code, LOGIN_OTP_EXPIRE_MINUTES
+        )
+        # otp_required is a flow flag, not a credential (bandit B105).
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"otp_required": True, "detail": _GENERIC_LOGIN_OTP_MESSAGE},  # nosec B105
+        )
     except PasswordResetRequiredError as e:
         # Credentials were correct but a forced reset is pending — the auth itself
         # succeeded, so record it as a success (uid is not exposed on this path).
@@ -312,9 +353,52 @@ async def login_user(request: Request, req: UserLoginSchema, response: Response)
         # Generic message — do not reveal whether email exists
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
+    # login() always resolves via one of the exceptions above; reaching here means
+    # the second factor was skipped, which would be an auth bypass. Fail closed.
+    raise HTTPException(status_code=500, detail="Authentication error")
+
+
+@router.post("/login/verify", response_model=LoginResponse)
+@limiter.limit("10/minute")  # blunt online guessing of the 6-digit code per IP
+async def verify_login_route(
+    request: Request,
+    req: VerifyLoginOtpSchema,
+    response: Response,
+):
+    """Step 2 of login. Confirms the emailed code; only on success is the session
+    cookie issued. A wrong/expired/exhausted code fails generically."""
+    ip = _client_ip(request)
+    try:
+        access_token, user_id, role = await verify_login_otp(req.email, req.code)
+    except InvalidLoginOtpError:
+        _record_login_attempt(user_id=None, outcome="failure", ip=ip, reason="bad_otp")
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in code")
+
     _record_login_attempt(user_id=user_id, outcome="success", ip=ip)
     set_auth_cookie(response, access_token)
     return LoginResponse(user_role=role, user_id=user_id.hex)
+
+
+@router.post("/login/resend", response_model=AuthResponseSchema)
+@limiter.limit("3/minute")  # tight cap: this endpoint triggers outbound email
+async def resend_login_otp_route(
+    request: Request,
+    req: ResendLoginOtpSchema,
+    background_tasks: BackgroundTasks,
+):
+    """Re-send the sign-in code for an in-flight login challenge. Always returns
+    the same generic message (and is cooldown-limited server-side), so it reveals
+    nothing about which accounts have a challenge pending."""
+    try:
+        result = await resend_login_otp(req.email)
+    except Exception:
+        result = None
+    if result:
+        email, username, code = result
+        background_tasks.add_task(
+            send_login_code_email, email, username, code, LOGIN_OTP_EXPIRE_MINUTES
+        )
+    return AuthResponseSchema(detail=_GENERIC_LOGIN_OTP_MESSAGE)
 
 
 @router.post("/logout", response_model=AuthResponseSchema)

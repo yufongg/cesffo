@@ -17,7 +17,7 @@ from core import account_lockout
 
 from common.encryption import blind_index
 from db.db import get_db_session
-from model.models import User, PendingRegistration
+from model.models import User, PendingRegistration, LoginChallenge
 
 # Username policy mirrors the registration schema (router-level Field bounds).
 USERNAME_MIN_LENGTH = 3
@@ -42,6 +42,12 @@ MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
 VERIFICATION_CODE_EXPIRE_MINUTES = 10       # how long an emailed 6-digit code stays valid
 MAX_VERIFICATION_ATTEMPTS = 5               # wrong-code guesses before the pending signup is burned
 VERIFICATION_RESEND_COOLDOWN_SECONDS = 60   # min gap between code emails (anti inbox-bombing)
+
+#$ Login two-factor (login 2FA) settings. Mirrors the registration code above:
+#$ same lifetime, guess cap and resend cooldown, applied to the login challenge.
+LOGIN_OTP_EXPIRE_MINUTES = VERIFICATION_CODE_EXPIRE_MINUTES
+MAX_LOGIN_OTP_ATTEMPTS = MAX_VERIFICATION_ATTEMPTS
+LOGIN_OTP_RESEND_COOLDOWN_SECONDS = VERIFICATION_RESEND_COOLDOWN_SECONDS
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
@@ -104,6 +110,22 @@ class InvalidVerificationError(Exception):
     """Raised for any bad/expired/exhausted/unknown email-verification code. A
     single generic failure so the verify endpoint can't be used to probe which
     signups are currently pending."""
+    pass
+
+class LoginOtpRequiredError(Exception):
+    """Raised by login() once the password is verified: authentication is not yet
+    complete because a second factor (emailed 6-digit code) is owed. Carries the
+    details the caller needs to email that code out of band; NO session token is
+    issued until the code is confirmed via verify_login_otp()."""
+    def __init__(self, email: str, username: str, code: str):
+        super().__init__()
+        self.email = email
+        self.username = username
+        self.code = code
+
+class InvalidLoginOtpError(Exception):
+    """Raised for any bad/expired/exhausted/unknown login OTP. A single generic
+    failure so the verify endpoint can't be used to probe accounts."""
     pass
 
 class UserNotFoundError(Exception):
@@ -469,15 +491,137 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         #^ Snapshot what we need now, before the context manager commits and closes the session.
         must_reset = existing_user.force_password_reset
         uid = existing_user.user_id
-        role = existing_user.role
+        username = existing_user.username
         pwd_hash = existing_user.password
 
 
     if must_reset:
+        #! A forced reset takes precedence over the OTP: the user must set a new
+        #! password (via the reset token) before any session — no second factor here.
         raise PasswordResetRequiredError(create_reset_token(uid.hex, pwd_hash))
 
-    token = create_access_token(uid.hex, role)
-    return token, uid, role
+    #! Password OK, but authentication is NOT complete: stage a login challenge and
+    #! demand the emailed 6-digit code. No session token is issued until it is
+    #! confirmed (see verify_login_otp). The code is returned only so the caller can
+    #! email it out of band — it is never sent to the client.
+    code = _issue_login_challenge(uid)
+    raise LoginOtpRequiredError(email=email, username=username, code=code)
+
+
+def _issue_login_challenge(user_id: UUID) -> str:
+    """Create (or replace) the pending login challenge for a user and return a
+    fresh 6-digit code. Only the Argon2 hash of the code is stored. One challenge
+    per user: a new login attempt overwrites any previous outstanding one."""
+    code = generate_verification_code()
+    now = datetime.now(timezone.utc)
+    with get_db_session() as session:
+        existing = session.scalar(
+            select(LoginChallenge).where(LoginChallenge.user_id == user_id)
+        )
+        if existing:
+            session.delete(existing)
+            session.flush()
+        session.add(LoginChallenge(
+            user_id=user_id,
+            code_hash=hash_password(code),
+            code_expires=now + timedelta(minutes=LOGIN_OTP_EXPIRE_MINUTES),
+            attempts=0,
+            last_sent_at=now,
+        ))
+    return code
+
+
+async def verify_login_otp(email: EmailStr, code: str) -> Tuple[str, UUID, str]:
+    """Second step of login: confirm the emailed code and, only if it matches,
+    issue the real session token. The code is single-use, time-limited, and capped
+    at MAX_LOGIN_OTP_ATTEMPTS guesses.
+
+    Returns ``(access_token, user_id, role)`` on success. Raises
+    InvalidLoginOtpError for any bad/expired/exhausted/unknown code (one generic
+    failure — no enumeration oracle)."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == email_bidx))
+        challenge = (
+            session.scalar(select(LoginChallenge).where(LoginChallenge.user_id == user.user_id))
+            if user else None
+        )
+
+        #! No such user, no outstanding challenge, or the account is no longer
+        #! eligible: burn the same Argon2 time as a real check so all these cases
+        #! are indistinguishable by timing, then fail generically.
+        if user is None or challenge is None or user.is_deleted or not user.is_active:
+            try:
+                _ph.verify(_DUMMY_HASH, code)
+            except Exception:  # nosec B110
+                pass
+            raise InvalidLoginOtpError()
+
+        now = datetime.now(timezone.utc)
+        expires = challenge.code_expires
+        if expires.tzinfo is None:               # tolerate a naive value from the DB driver
+            expires = expires.replace(tzinfo=timezone.utc)
+
+        #! Expired or out of guesses: burn the challenge — a fresh login is needed.
+        if now > expires or challenge.attempts >= MAX_LOGIN_OTP_ATTEMPTS:
+            session.delete(challenge)
+            raise InvalidLoginOtpError()
+
+        try:
+            _ph.verify(challenge.code_hash, code)
+        except exceptions.VerifyMismatchError:
+            challenge.attempts += 1
+            if challenge.attempts >= MAX_LOGIN_OTP_ATTEMPTS:
+                session.delete(challenge)        #! last allowed guess used up — burn it
+            raise InvalidLoginOtpError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        #* Code is correct: consume the challenge and issue a real session.
+        uid = user.user_id
+        role = user.role
+        session.delete(challenge)
+
+    return create_access_token(uid.hex, role), uid, role
+
+
+async def resend_login_otp(email: EmailStr) -> Optional[Tuple[str, str, str]]:
+    """Re-issue a fresh login code for an in-flight challenge, subject to a
+    cooldown that stops the endpoint being used to flood someone's inbox.
+
+    Returns ``(email, username, code)`` when a new code was issued, or ``None``
+    (no outstanding challenge, ineligible account, or still within the cooldown) —
+    the caller returns an identical generic response either way."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == email_bidx))
+        if not user or user.is_deleted or not user.is_active:
+            return None
+        challenge = session.scalar(
+            select(LoginChallenge).where(LoginChallenge.user_id == user.user_id)
+        )
+        if challenge is None:
+            return None
+
+        last_sent = challenge.last_sent_at
+        if last_sent.tzinfo is None:
+            last_sent = last_sent.replace(tzinfo=timezone.utc)
+        if (now - last_sent).total_seconds() < LOGIN_OTP_RESEND_COOLDOWN_SECONDS:
+            return None                          #! within cooldown — don't send another email
+
+        code = generate_verification_code()
+        challenge.code_hash = hash_password(code)
+        challenge.code_expires = now + timedelta(minutes=LOGIN_OTP_EXPIRE_MINUTES)
+        challenge.attempts = 0                   # fresh code resets the guess counter
+        challenge.last_sent_at = now
+        username = user.username
+
+    return email, username, code
 
 
 async def update_profile(
