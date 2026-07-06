@@ -15,7 +15,7 @@ from common.audit import log_action
 from common.email import (
     send_password_reset_email, send_verification_code_email, send_login_code_email,
 )
-from common.security import client_ip as _client_ip, parse_uid as _parse_uid, to_uuid as _to_uuid
+from common.security import client_ip as _client_ip, parse_uid as _parse_uid
 from db.db import get_db_session
 from model.models import User
 from model.response_model import ResponseModel
@@ -359,14 +359,17 @@ async def login_user(
 
 
 @router.post("/login/verify", response_model=LoginResponse)
-@limiter.limit("10/minute")  # blunt online guessing of the 6-digit code per IP
+@limiter.limit("10/minute")  #! More stringent to prevent guessing of OTP
 async def verify_login_route(
     request: Request,
     req: VerifyLoginOtpSchema,
     response: Response,
 ):
-    """Step 2 of login. Confirms the emailed code; only on success is the session
-    cookie issued. A wrong/expired/exhausted code fails generically."""
+    """
+    Confirms the emailed code; only on success is the session
+    cookie issued. A wrong/expired/exhausted code fails generically.
+    """
+    
     ip = _client_ip(request)
     try:
         access_token, user_id, role = await verify_login_otp(req.email, req.code)

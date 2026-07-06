@@ -353,10 +353,10 @@ async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, st
             select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
         )
 
-        #! Unknown signup: still burn the same Argon2 time as a real check so
-        #! "no pending" and "wrong code" are indistinguishable by timing.
+        #! Unknown signup: still burn the same Argon2 time as a real check so "no pending" and "wrong code" are indistinguishable by timing.
         if pending is None:
             try:
+                #! Dummy verify function to prevent timing attacks
                 _ph.verify(_DUMMY_HASH, code)
             except Exception:  # nosec B110
                 pass
@@ -364,11 +364,10 @@ async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, st
 
         now = datetime.now(timezone.utc)
         expires = pending.code_expires
-        if expires.tzinfo is None:               # tolerate a naive value from the DB driver
+        if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
 
-        #! Expired or out of guesses: burn the pending signup — a fresh code must
-        #! be requested. Fail generically either way.
+        #! Expired or out of guesses: burn the pending signup — a fresh code must be requested. Fail generically either way.
         if now > expires or pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
             session.delete(pending)
             session.commit()
@@ -379,15 +378,14 @@ async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, st
         except exceptions.VerifyMismatchError:
             pending.attempts += 1
             if pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
-                session.delete(pending)          #! last allowed guess used up — burn it
+                #^ If too many attempts, delete the code
+                session.delete(pending) 
             session.commit()
             raise InvalidVerificationError()
         except (exceptions.InvalidHashError, exceptions.VerificationError):
             raise HTTPException(status_code=500, detail="Internal verification error")
 
-        #* Code is correct. Re-check uniqueness (someone may have claimed the
-        #* email/username since step 1), then create the account and consume the
-        #* pending row in the same transaction.
+        #^ Code is correct. Re-check uniqueness
         if session.scalar(select(User).where(User.email_bidx == email_bidx)):
             session.delete(pending)
             session.commit()
@@ -397,12 +395,13 @@ async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, st
             session.commit()
             raise ExistingUserError("username")
 
+        #^ Create new user. To be stored in DB
         user = User(
-            email=email,                     # encrypted at rest by the column type; re-supplied by the client
+            email=email,                     
             email_bidx=email_bidx,
             username=pending.username,
-            password=pending.password_hash,  # already Argon2-hashed at request time
-            role=ROLE_STUDENT,               # self-service signup can NEVER pick its own role
+            password=pending.password_hash,
+            role=ROLE_STUDENT,
         )
         session.add(user)
         session.delete(pending)

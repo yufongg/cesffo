@@ -1,23 +1,31 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 
+import os
+from urllib.parse import quote
+
 from core.rate_limit import limiter
 from common.audit import log_action
+from common.email import send_password_reset_email
 from common.security import to_uuid, parse_uid as _parse_uid, client_ip as _client_ip
 from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import User
 from .auth import (
-    hash_password, generate_temp_password, validate_password_strength,
-    ALLOWED_ROLES, ROLE_ADMIN, ROLE_STUDENT, PasswordPolicyError,
+    hash_password, generate_temp_password,
+    create_reset_token, RESET_LINK_EXPIRE_MINUTES,
+    ALLOWED_ROLES, ROLE_ADMIN, ROLE_STUDENT,
 )
 from .auth_router import require_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin - User Management"])
+
+#? Same base URL the self-service forgot-password flow uses to build reset links.
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 
 class AdminUserView(BaseModel):
@@ -44,10 +52,15 @@ class AssignRoleRequest(BaseModel):
 class SetStatusRequest(BaseModel):
     is_active: bool
 
-class TempPasswordResponse(BaseModel):
+
+class ResetLinkSentResponse(BaseModel):
     user_id: str
-    temp_password: str
-    detail: str = "Share this one-time password over a secure channel. The user must change it on next login."
+    detail: str = "A password reset link has been emailed to the user. Their current password is unchanged until they complete the reset."
+
+
+class UserCreatedResponse(BaseModel):
+    user_id: str
+    detail: str = "User created. A link to set their password has been emailed to them; the account cannot be signed into until they complete it."
 
 
 # --- Helpers ---
@@ -111,16 +124,26 @@ async def list_users(
         return [_to_view(u) for u in users]
 
 
-@router.post("/users", response_model=TempPasswordResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
-async def create_user(request: Request, req: CreateUserRequest, admin: dict = Depends(require_admin)):
+@router.post("/users", response_model=UserCreatedResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")  # account-provisioning endpoint — cap even for a compromised admin token
+async def create_user(
+    request: Request,
+    req: CreateUserRequest,
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(require_admin),
+):
 
     role = validate_role(req.role)
     email = req.email.strip().lower()
     username = req.username.strip()
 
-    temp_password = generate_temp_password()
-    hashed = hash_password(temp_password)
+    #! The account needs a valid password hash so the one-time set-password token can be
+    #! bound to it (single-use, exactly like the reset flow). We anchor it to a CSPRNG
+    #! secret that is NEVER returned or logged — the user is unaware of it and can only
+    #! sign in after choosing their own password via the emailed link. This is strictly
+    #! safer than handing out a temporary password.
+    placeholder_secret = generate_temp_password(24)
+    hashed = hash_password(placeholder_secret)
 
     with get_db_session() as session:
         #? email is encrypted at rest, so dedupe by its blind index rather than the value.
@@ -136,14 +159,24 @@ async def create_user(request: Request, req: CreateUserRequest, admin: dict = De
             password=hashed,
             role=role,
             is_active=True,
-            force_password_reset=True,  # must rotate the temp password on first login
+            force_password_reset=True,  # must set a real password via the emailed link before use
         )
         session.add(user)
         session.commit()
         session.refresh(user)
+
+        #! Bind the one-time token to the just-stored hash. The user chooses their own
+        #! password (typed twice, strength-checked) on the same /reset-password screen.
+        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
         uid_hex = user.user_id.hex
 
-    return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
+    reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
+    #! Send after the response is returned — keeps SMTP latency/errors off the request path.
+    background_tasks.add_task(
+        send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
+    )
+
+    return UserCreatedResponse(user_id=uid_hex)
 
 
 @router.patch("/users/{user_id}/role", response_model=AdminUserView)
@@ -202,28 +235,40 @@ async def set_status(request: Request, user_id: str, req: SetStatusRequest, admi
         return _to_view(user)
 
 
-@router.post("/users/{user_id}/reset-password", response_model=TempPasswordResponse)
-@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
-async def reset_password(request: Request, user_id: str, admin: dict = Depends(require_admin)):
-    """Reset (not set) a user's password to a new strong random value.
-    The admin never chooses the value; it is returned once for secure handoff."""
+@router.post("/users/{user_id}/reset-password", response_model=ResetLinkSentResponse)
+@limiter.limit("20/minute")  # reset-email trigger — cap even for a compromised admin token
+async def reset_password(
+    request: Request,
+    user_id: str,
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(require_admin),
+):
+    """Email the user a one-time link to choose a new password — the same track as
+    self-service "forgot password". The admin never sees or sets a password: no
+    temporary password is generated, and the user's current password is left
+    untouched until they complete the reset via the emailed link."""
     uid = parse_uuid(user_id)
-    temp_password = generate_temp_password()
-
-    # Defensive: ensure the generated value satisfies our own policy.
-    try:
-        validate_password_strength(temp_password)
-    except PasswordPolicyError:
-        temp_password = generate_temp_password(24)
-
-    hashed = hash_password(temp_password)
 
     with get_db_session() as session:
         user = retrieve_user(session, uid)
-        user.password = hashed
-        user.force_password_reset = True
-        user.auth_attempts = 0  # clear any lockout so the user can sign in with the temp password
-        session.commit()
+        #! Bind the one-time token to the current password hash (single-use) — exactly
+        #! like request_password_reset(). The password itself is NOT changed here.
+        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
+        username = user.username
+        email = user.email
         uid_hex = user.user_id.hex
 
-    return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
+        #! SR-11: an admin-initiated password reset is a security-relevant event.
+        log_action(
+            session, user_id=_parse_uid(admin), action="admin_password_reset",
+            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
+        )
+        session.commit()
+
+    reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
+    #! Send after the response is returned — keeps SMTP latency/errors off the request path.
+    background_tasks.add_task(
+        send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
+    )
+
+    return ResetLinkSentResponse(user_id=uid_hex)
