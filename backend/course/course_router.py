@@ -8,6 +8,9 @@ from sqlalchemy import select, func, or_, and_
 from db.db import get_db_session
 from model.models import Course, CourseEnrollment, User
 from common.security import parse_uid as _parse_uid
+from common.course_fields import (
+    course_summary, course_level, course_tags, instructor_names as _instructor_names,
+)
 from user.auth_router import get_current_user
 
 router = APIRouter(prefix="/api/v1/courses", tags=["Courses"])
@@ -56,20 +59,6 @@ def _like_escape(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _safe_tags(value) -> List[str]:
-    if isinstance(value, list):
-        return [str(t) for t in value if isinstance(t, (str, int, float))]
-    return []
-
-
-def _dict_str(value, key) -> Optional[str]:
-    if isinstance(value, dict):
-        v = value.get(key)
-        if isinstance(v, str):
-            return v
-    return None
-
-
 def _enrollment_counts(session) -> dict:
     rows = session.execute(
         select(CourseEnrollment.course_id, func.count())
@@ -90,17 +79,6 @@ def _my_enrollments(session, uid: UUID):
     enrolled = {course_id for course_id, _ in rows}
     progress = {course_id: prog for course_id, prog in rows}
     return enrolled, progress
-
-
-def _instructor_names(session, courses) -> dict:
-    ids = {c.instructor_id for c in courses if c.instructor_id}
-    if not ids:
-        return {}
-    rows = session.execute(
-        select(User.user_id, User.username).where(User.user_id.in_(ids))
-    ).all()
-
-    return {user_id: username for user_id, username in rows}
 
 
 def _current_user_row(session, uid: UUID) -> User:
@@ -135,9 +113,9 @@ def _build_card(course, *, counts, enrolled_ids, progress_map, instructor_name) 
         course_id=cid.hex,
         course_name=course.course_name,
         instructor=instructor_name,
-        tags=_safe_tags(course.tags),
-        summary=_dict_str(course.content, "summary"),
-        level=_dict_str(course.prerequirements, "level"),
+        tags=course_tags(course),
+        summary=course_summary(course),
+        level=course_level(course),
         xp_reward=getattr(course, "xp_reward", 0) or 0,
         price_cents=getattr(course, "price_cents", 0) or 0,
         currency=getattr(course, "currency", "SGD") or "SGD",

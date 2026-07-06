@@ -15,24 +15,25 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NA
 
 engine = create_engine(
     DATABASE_URL,
-    pool_size=10,          # max connections
-    max_overflow=20,       # scales to 20 when under heavy load
-    pool_pre_ping=True     # check connection health before query to avoid deadlocks
+    pool_size=10,          #$ baseline pooled connections
+    max_overflow=20,       #$ extra connections opened under load (so 30 total max)
+    pool_pre_ping=True     #* test a connection's health before use, so stale ones are recycled not handed out
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
-@contextmanager         # Thread safe
+@contextmanager
 def get_db_session():
-    """Provides a transactional scope around a series of operations."""
+    #* One transaction per `with` block: commit on clean exit, roll back on any error.
+    #^ So callers normally only need session.flush() (to get generated ids) — not commit().
     session = SessionLocal()
     try:
         yield session
-        session.commit()  # Automatically commit if operations succeed
+        session.commit()    #* success path: persist everything done in the block
     except Exception:
-        session.rollback()  # Automatically rollback if an unhandled error occurs
+        session.rollback()  #! any unhandled error: undo the whole block, then re-raise
         raise
     finally:
-        session.close()  # cleanup to not starve the connection
+        session.close()     #* always return the connection to the pool

@@ -49,8 +49,8 @@ def _is_admin(current_user: dict) -> bool:
 
 
 def _require_owner_or_admin(owner_id: Optional[UUID], current_user: dict) -> None:
-    """Authorization gate: only the resource's author (or an admin) may mutate it.
-    Anonymous/legacy rows with no owner are admin-only to be safe."""
+    #! Authorization gate: only the row's author (or an admin) may mutate it.
+    #! Ownerless legacy/anonymous rows are treated as admin-only, to fail safe.
     if _is_admin(current_user):
         return
     if owner_id is None or owner_id != _parse_uid(current_user):
@@ -299,9 +299,11 @@ async def create_post(
         response = post_to_response(post, session)
 
         notification_response = None
+        thread_creator_id = None
 
         # Notify the thread owner when another user replies to their thread.
         if thread.creator_id and thread.creator_id != uid:
+            thread_creator_id = thread.creator_id  # captured for recipient-scoped delivery
             actor = session.get(User, uid)
             actor_name = actor.username if actor else "Someone"
 
@@ -325,7 +327,9 @@ async def create_post(
     })
 
     if notification_response:
-        await manager.broadcast({
+        #! Recipient-scoped: deliver ONLY to the thread owner's sockets, never broadcast —
+        #! a notification is private to its recipient and must not reach other clients.
+        await manager.send_to_user(thread_creator_id, {
             "event": "notification_created",
             "recipient_id": notification_response.recipient_id,
             "notification": notification_response.model_dump(mode="json"),
@@ -490,7 +494,7 @@ async def update_notification(
         if not notification:
             raise HTTPException(status_code=404, detail="Notification not found")
 
-        # IDOR guard: a user may only update notifications addressed to them.
+        #! IDOR guard: a user may only update notifications addressed to them.
         if notification.recipient_id != uid and not _is_admin(current_user):
             raise HTTPException(status_code=403, detail="Not your notification")
 
@@ -500,41 +504,43 @@ async def update_notification(
 
 
 # --- WebSocket (token-authenticated live updates) ---------------------------
-def _authenticate_ws_token(token: Optional[str]) -> bool:
-    """Validate the JWT taken from the session cookie on the WS handshake.
-    Returns True only for a live access-scope token of an active, non-deleted
-    user."""
+def _authenticate_ws_token(token: Optional[str]) -> Optional[UUID]:
+    #! Validate the JWT from the session cookie at the WS handshake. Returns the user id
+    #! ONLY for a live access-scope token belonging to an active, non-deleted user;
+    #! returns None (caller rejects the socket) for anything else.
     if not token:
-        return False
+        return None
     try:
         payload = decode_access_token(token)
     except JWTError:
-        return False
+        return None
     if payload.get("scope") != SCOPE_ACCESS:
-        return False
+        return None
     sub = payload.get("sub")
     if not sub:
-        return False
+        return None
     try:
         uid = UUID(sub)
     except (ValueError, TypeError):
-        return False
+        return None
     with get_db_session() as session:
         user = session.scalar(select(User).where(User.user_id == uid))
-        return bool(user and user.is_active and not user.is_deleted)
+        if user and user.is_active and not user.is_deleted:
+            return uid
+    return None
 
 
 @router.websocket("/ws")
 async def forum_websocket(websocket: WebSocket) -> None:
-    # The JWT now lives in an httpOnly cookie, which the browser sends on the
-    # same-origin WS handshake — so read it from there instead of a query param
-    # (that also keeps the token out of URLs / server logs).
+    #? The JWT lives in an httpOnly cookie the browser sends on the same-origin WS handshake.
+    #^ Read it from there, not a query param — that keeps the token out of URLs and server logs.
     token = websocket.cookies.get("access_token")
-    if not _authenticate_ws_token(token):
+    uid = _authenticate_ws_token(token)
+    if uid is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await manager.connect(websocket)
+    await manager.connect(websocket, uid)
     try:
         while True:
             await websocket.receive_text()

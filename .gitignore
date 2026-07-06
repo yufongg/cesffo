@@ -320,5 +320,8 @@ vite.config.ts.timestamp-*
 
 .gitignore
 
+# Local docker compose config (kept out of VCS)
+docker-compose.yml
+
 # Uploaded forum images
 backend/uploads/forum/

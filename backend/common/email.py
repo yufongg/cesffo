@@ -1,18 +1,7 @@
-"""Outbound email via Gmail SMTP.
-
-Sends through Gmail's SMTP relay (smtp.gmail.com:587, STARTTLS) using a Gmail
-account plus an App Password. Standard library only — no extra dependency.
-
-One-time setup on the Gmail account:
-  1. Enable 2-Step Verification (required before App Passwords are available).
-  2. Create an App Password:  Google Account -> Security -> App passwords.
-  3. Put the 16-character App Password in GMAIL_APP_PASSWORD and the address in
-     GMAIL_ADDRESS (see .env.example). The normal account password will NOT work
-     for SMTP once 2-Step Verification is on.
-
-Dev convenience: if GMAIL_ADDRESS / GMAIL_APP_PASSWORD are unset and the app is
-not running in production, the email (including the reset link) is printed to the
-backend console instead of being sent, so the flow is demoable without creds.
+"""
+This file contains functionality for the password reset feature.
+It utilizes a personal GMAIL account created in the name of cesffo to send password reset emails that the user can click
+Clicking it will redirect the user to a webpage for them to enter their new credentials.
 """
 
 import html
@@ -22,14 +11,12 @@ import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
 
-# Gmail's submission endpoint. STARTTLS on 587 is the recommended setup.
+# Publicly available info
 GMAIL_SMTP_HOST = "smtp.gmail.com"
 GMAIL_SMTP_PORT = 587
 
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "").strip()
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-# Display name shown to recipients. The From address is always the Gmail account
-# (Gmail rejects/rewrites a From that isn't the authenticated mailbox).
 EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Cesffo")
 
 IS_PRODUCTION = os.getenv("APP_ENV", "development") == "production"
@@ -45,12 +32,7 @@ def _gmail_configured() -> bool:
 
 
 def send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
-    """Send a single multipart (plain-text + optional HTML) email via Gmail.
-
-    Blocking (uses smtplib); call it from a background task / threadpool, never
-    inline in a request handler. Raises EmailConfigError in production if Gmail is
-    not configured; in development it prints the message instead.
-    """
+    #* Send one multipart email (plain-text, plus an optional HTML alternative) through Gmail.
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((EMAIL_FROM_NAME, GMAIL_ADDRESS or "no-reply@cesffo.local"))
@@ -59,15 +41,13 @@ def send_email(to_email: str, subject: str, text_body: str, html_body: str | Non
     if html_body:
         msg.add_alternative(html_body, subtype="html")
 
+    #! No Gmail credentials configured: fail hard in production, but in dev just
+    #^ print the email to the console so local flows aren't blocked on SMTP setup.
     if not _gmail_configured():
         if IS_PRODUCTION:
-            # Fail loudly in logs (the request already returned 200) rather than
-            # silently dropping a real user's reset email.
             raise EmailConfigError(
                 "Gmail is not configured (set GMAIL_ADDRESS and GMAIL_APP_PASSWORD)"
             )
-        # Development fallback: surface the message (incl. the reset link) so the
-        # flow can be exercised end-to-end without credentials.
         print(  # noqa: T201 - intentional dev-only console fallback
             "\n----- [DEV EMAIL] Gmail not configured; printing instead -----\n"
             f"To: {to_email}\nSubject: {subject}\n\n{text_body}\n"
@@ -84,12 +64,7 @@ def send_email(to_email: str, subject: str, text_body: str, html_body: str | Non
 
 
 def send_password_reset_email(to_email: str, username: str, reset_link: str, expires_minutes: int) -> None:
-    """Compose and send the one-time password-reset email.
-
-    The email carries only a short-lived, single-use reset *link* (a capability),
-    never a password. Both the username and the link are HTML-escaped before being
-    placed in the HTML part to prevent injection into the message body.
-    """
+    #* Build and send the one-time password-reset email (plain-text + HTML versions).
     subject = "Reset your Cesffo password"
 
     text_body = (
@@ -103,6 +78,8 @@ def send_password_reset_email(to_email: str, username: str, reset_link: str, exp
         "— The Cesffo team"
     )
 
+    #! Escape both values before dropping them into HTML — username and link are
+    #! interpolated into markup, so unescaped input would be an email XSS vector.
     safe_user = html.escape(username)
     safe_link = html.escape(reset_link, quote=True)
     html_body = (
@@ -118,6 +95,74 @@ def send_password_reset_email(to_email: str, username: str, reset_link: str, exp
         f"<p>This link expires in {expires_minutes} minutes and can only be used "
         "once. If you didn't request this, you can safely ignore this email — "
         "your password will not change.</p>"
+        "<p>— The Cesffo team</p>"
+    )
+
+    send_email(to_email, subject, text_body, html_body)
+
+
+def send_verification_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
+    """Compose and send the registration email-verification code.
+
+    The email carries a short-lived, single-use 6-digit code the user types back
+    to prove they own the address; no account exists until it is confirmed. The
+    username is HTML-escaped before being placed in the HTML part (the code is
+    digits only) to prevent injection into the message body.
+    """
+    subject = "Your Cesffo verification code"
+
+    text_body = (
+        f"Hi {username},\n\n"
+        "Use this code to finish creating your Cesffo account:\n\n"
+        f"    {code}\n\n"
+        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
+        "If you didn't try to sign up, you can safely ignore this email.\n\n"
+        "— The Cesffo team"
+    )
+
+    safe_user = html.escape(username)
+    safe_code = html.escape(code)
+    html_body = (
+        f"<p>Hi {safe_user},</p>"
+        "<p>Use this code to finish creating your Cesffo account:</p>"
+        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
+        f"<p>The code expires in {expires_minutes} minutes and can only be used "
+        "once. If you didn't try to sign up, you can safely ignore this email.</p>"
+        "<p>— The Cesffo team</p>"
+    )
+
+    send_email(to_email, subject, text_body, html_body)
+
+
+def send_login_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
+    """Compose and send the login two-factor code.
+
+    Sent after the password is verified: the user types this short-lived,
+    single-use 6-digit code back to complete sign-in; no session is issued until
+    it is confirmed. The username is HTML-escaped before being placed in the HTML
+    part (the code is digits only) to prevent injection into the message body.
+    """
+    subject = "Your Cesffo sign-in code"
+
+    text_body = (
+        f"Hi {username},\n\n"
+        "Use this code to finish signing in to your Cesffo account:\n\n"
+        f"    {code}\n\n"
+        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
+        "If you didn't try to sign in, someone may have your password — please "
+        "reset it as soon as possible.\n\n"
+        "— The Cesffo team"
+    )
+
+    safe_user = html.escape(username)
+    safe_code = html.escape(code)
+    html_body = (
+        f"<p>Hi {safe_user},</p>"
+        "<p>Use this code to finish signing in to your Cesffo account:</p>"
+        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
+        f"<p>The code expires in {expires_minutes} minutes and can only be used "
+        "once. If you didn't try to sign in, someone may have your password — "
+        "please reset it as soon as possible.</p>"
         "<p>— The Cesffo team</p>"
     )
 
