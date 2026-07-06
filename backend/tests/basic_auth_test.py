@@ -151,8 +151,9 @@ def test_endpoint_register_step1_success(mock_request_registration):
     assert "detail" in response.json()
 
 
+@patch("user.auth_router._record_registration_event")
 @patch("user.auth_router.verify_registration")
-def test_endpoint_register_verify_success(mock_verify_registration):
+def test_endpoint_register_verify_success(mock_verify_registration, mock_record_event):
     """/register/verify confirms the emailed code, creating the account and issuing
     the session cookie (auto-login)."""
     # verify_registration() returns (access_token, user_id, role).
