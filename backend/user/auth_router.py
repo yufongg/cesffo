@@ -60,10 +60,10 @@ _GENERIC_LOGIN_OTP_MESSAGE = (
     "If those credentials are valid, a 6-digit sign-in code has been sent to your email."
 )
 _GENERIC_PASSWORD_CHANGE_OTP_MESSAGE = (
-    "If the password details are valid, a 6-digit confirmation code has been sent to your email."
+    "If the password details are valid, a 6-digit confirmation code has been sent to your email."  # nosec B105
 )
 _GENERIC_PASSWORD_CHANGE_FAILURE = (
-    "Password change could not be confirmed. Check your current password and code."
+    "Password change could not be confirmed. Check your current password and code."  # nosec B105
 )
 
 reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
