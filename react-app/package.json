@@ -19,10 +19,16 @@
     "start-win": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:ci": "export PORT=80",
+    "test:ci": "CI=true react-scripts test --watchAll=false",
     "eject": "react-scripts eject",
     "dev": "react-scripts start",
     "prod": "export $(cat .env | xargs) && react-scripts start"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^react-router-dom$": "react-router-dom/dist/index.js",
+      "^react-router/dom$": "react-router/dist/development/dom-export.js"
+    }
   },
   "eslintConfig": {
     "extends": [

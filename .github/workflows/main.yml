@@ -35,11 +35,43 @@ jobs:
     - name: Run Bandit Security Scanner
       run: bandit -c ./backend/bandit.yaml -r ./backend -x ./backend/tests
 
+  # Audit third-party dependencies against known-vulnerability databases
+  dependency-check:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Audit Python Dependencies (pip-audit)
+      run: |
+        pip install pip-audit
+        pip-audit -r ./backend/requirements.txt
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: react-app/package-lock.json
+
+    - name: Audit npm Dependencies (npm audit)
+      working-directory: ./react-app
+      run: |
+        npm ci --ignore-scripts
+        npm audit --omit=dev --audit-level=high
+
   # Integration tests for main and dev scope
   integration-tests:
     name: Dockerized Integration Testing
     runs-on: ubuntu-latest
-    needs: static-analysis
+    needs: [static-analysis, dependency-check]
     # Logical Gate: Skip this slow job on active feature branches unless a PR is opened
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.event_name == 'pull_request'
     
@@ -79,7 +111,7 @@ jobs:
     - name: Execute Backend Pytest Suite
       run: docker compose -f docker-compose.yml exec -T backend pytest ./tests
 
-    - name: Execute Frontend Vitest Suite
+    - name: Execute Frontend Jest Suite
       run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
 
     - name: Dump Docker Logs on Failure
