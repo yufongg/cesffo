@@ -57,7 +57,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: react-app/package-lock.json
 
@@ -66,6 +66,29 @@ jobs:
       run: |
         npm ci --ignore-scripts
         npm audit --omit=dev --audit-level=high
+
+  # Frontend unit tests run on the runner (the production frontend image is a
+  # static nginx server with no node runtime, so tests can't run inside it)
+  frontend-tests:
+    name: Frontend Jest Suite
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: react-app/package-lock.json
+
+    - name: Run Jest Suite
+      working-directory: ./react-app
+      run: |
+        npm ci --ignore-scripts
+        npm run test:ci
 
   # Integration tests for main and dev scope
   integration-tests:
@@ -111,9 +134,6 @@ jobs:
     - name: Execute Backend Pytest Suite
       run: docker compose -f docker-compose.yml exec -T backend pytest ./tests
 
-    - name: Execute Frontend Jest Suite
-      run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
-
     - name: Dump Docker Logs on Failure
       if: failure()
       run: |
@@ -128,7 +148,7 @@ jobs:
   production-deployment:
     name: Deploy Release to Production Server
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: [integration-tests, frontend-tests]
     # Strict logical gate: Only runs on a direct push to the deploy branch
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 

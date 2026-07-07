@@ -1,25 +1,43 @@
-# Use an official Node.js runtime as a parent image
-FROM node:18-alpine
+# Multi-stage build: compile the React app, then serve the static output with
+# nginx. The dev override (docker-compose.override.yml) targets the `base`
+# stage instead, where node + source are available for the hot-reload server.
 
-# Set the working directory in the container
+# --- Stage 1: dependencies + source (dev target) ---
+# Node >= 20 is required by react-router v7; 24 matches the npm that
+# generated package-lock.json so `npm ci` resolves identically.
+FROM node:24-alpine AS base
+
 WORKDIR /app
 
-# Copy package.json and package-lock.json (or yarn.lock) to the working directory
-# A wildcard is used to ensure both package.json and package-lock.json are copied if present
 COPY package*.json ./
 
-# Clear cache and fresh install node modules
-RUN npm cache clean --force && rm -rf node_modules
+# Deterministic, lockfile-exact install; scripts disabled as a supply-chain guard.
+RUN npm ci --ignore-scripts
 
-# Install app dependencies
-RUN npm install
-
-# Copy the rest of the application code
 COPY . .
 
-# Expose the port the app runs on
 EXPOSE 3000
 
-# Command to start the React development server
-# For production, you would typically build the app (npm run build) and serve the static files
+# Only used when this stage is run directly (dev override); the production
+# image below never executes it.
 CMD ["npm", "start"]
+
+# --- Stage 2: production build ---
+FROM base AS build
+
+# No inline runtime chunk (allows a script-src 'self' CSP with no inline JS)
+# and no source maps shipped to production.
+ENV INLINE_RUNTIME_CHUNK=false \
+    GENERATE_SOURCEMAP=false
+
+RUN npm run build
+
+# --- Stage 3: static file server ---
+FROM nginx:1.27-alpine AS production
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/build /usr/share/nginx/html
+
+EXPOSE 3000
+
+CMD ["nginx", "-g", "daemon off;"]
