@@ -70,6 +70,7 @@ def ensure_schema():
         # OTP resend ceiling (anti inbox-bombing) — see MAX_CODE_SENDS.
         'ALTER TABLE pending_registration ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
         'ALTER TABLE login_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
+        'ALTER TABLE password_change_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
     ]
     with engine.begin() as conn:
         for statement in migrations:
