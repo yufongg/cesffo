@@ -11,6 +11,7 @@ import Courses from './pages/Courses';
 import Marketplace from './pages/Marketplace';
 import Cart from './pages/Cart';
 import CoursePreview from './pages/CoursePreview';
+import StripeSuccess from './pages/StripeSuccess';
 import CourseLearn from './pages/CourseLearn';
 import Forum from './pages/Forum';
 import ModuleQuiz from './pages/ModuleQuiz';
@@ -64,6 +65,13 @@ export default function App() {
                       <ProtectedRoute>
                         <Cart />
                       </ProtectedRoute>
+                    }
+                  />
+                  
+                  <Route
+                    path="/stripe/success"
+                    element={
+                      <StripeSuccess />
                     }
                   />
 

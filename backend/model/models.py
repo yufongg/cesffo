@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship
 
 from db.db import Base
 
+
 # --- USER MODEL ---
 class User(Base):
     __tablename__ = "user"
@@ -307,7 +308,6 @@ class PostReport(Base):
     reviewed_at = Column(DateTime, nullable=True)
 
     post = relationship("Post", back_populates="reports")
-    modules = relationship("Module", back_populates="course", cascade="all, delete-orphan", order_by="Module.order_index")
 
 
 # --- COURSE ENROLLMENT MODEL ---
@@ -321,7 +321,10 @@ class CourseEnrollment(Base):
     enrolled_date = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
 
-    
+    payment_status = Column(String(20), default="failed", nullable=False)  # pending, paid, failed, refunded
+    stripe_payment_id = Column(String(255), nullable=True)  # Stripe PaymentIntent ID
+    amount_paid = Column(Integer, default=0, nullable=True)  # Amount in cents
+    currency = Column(String(3), default="SGD", nullable=True)
     # Relationships
     course = relationship("Course", back_populates="enrollments")
     # student = relationship("User", back_populates="enrollments")
