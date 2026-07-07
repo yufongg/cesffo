@@ -2,9 +2,9 @@
 export const MAX_SEARCH_LENGTH = 80;
 
 //! Block Control characters and bracket
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1F\x7F]/g;
 const ANGLE_BRACKETS = /[<>]/g;
-
 
 // Sanitizes user input like special characters
 export function sanitizeSearch(raw) {
