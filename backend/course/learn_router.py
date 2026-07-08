@@ -8,7 +8,8 @@ from sqlalchemy import select, func
 
 from db.db import get_db_session
 from model.models import (
-    Course, CourseEnrollment, Module, InteractiveActivity, ActivitySubmission, ModuleProgress, User,
+    Course, CourseEnrollment, Module,
+    InteractiveActivity, ActivitySubmission, ModuleProgress, User, Cart,
 )
 from model.constants import PaymentStatus
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
@@ -376,12 +377,15 @@ class CoursePreview(BaseModel):
     level: Optional[str] = None
     tags: List[str] = []
     xp_reward: int = 0
+    price_cents: int = 0
+    currency: str = "SGD"
     enrollment_count: int = 0
     module_count: int = 0
     total_activities: int = 0
     is_enrolled: bool = False
     is_pending_payment: bool =  False
     price_cents: int = 0
+    is_in_cart: bool = False
     modules: List[PreviewModule] = []
 
 
@@ -428,6 +432,9 @@ async def preview_course(course_id: str, current_user: dict = Depends(get_curren
                 CourseEnrollment.payment_status == PaymentStatus.PENDING
             )
         ) is not None
+        cart = session.scalar(select(Cart).where(Cart.user_id == student_id))
+        cart_items = cart.cart_items if cart and isinstance(cart.cart_items, list) else []
+        is_in_cart = cid.hex in {str(item) for item in cart_items}
 
         modules = session.scalars(
             select(Module).where(Module.course_id == cid).order_by(Module.order_index)
@@ -453,12 +460,15 @@ async def preview_course(course_id: str, current_user: dict = Depends(get_curren
             level=_course_level(course),
             tags=_course_tags(course),
             xp_reward=course.xp_reward or 0,
+            price_cents=course.price_cents or 0,
+            currency=course.currency or "SGD",
             enrollment_count=enrollment_count,
             module_count=len(preview_modules),
             total_activities=sum(pm.activity_count for pm in preview_modules),
             is_enrolled=is_enrolled,
             is_pending_payment=is_pending,
             price_cents=course.price_cents,
+            is_in_cart=is_in_cart,
             modules=preview_modules,
         )
 

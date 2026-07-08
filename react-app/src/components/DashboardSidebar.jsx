@@ -73,9 +73,9 @@ function SupportIcon() {
 
 // Destination, label and icon for each item. `end` keeps the active state from
 // bleeding into child routes.
+// --- Navigation data ---
 const ITEMS = [
   { to: '/marketplace', label: 'Browse courses', Icon: BrowseIcon },
-  { to: '/cart', label: 'Cart', Icon: CartIcon },
   { to: '/achievements', label: 'Achievements', Icon: TrophyIcon },
   { to: '/leaderboard', label: 'Leaderboard', Icon: LeaderboardIcon },
   { to: '/forums', label: 'Forums', Icon: ForumIcon },

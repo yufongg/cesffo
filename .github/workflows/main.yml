@@ -95,6 +95,12 @@ jobs:
         docker compose -f docker-compose.yml ps
         docker compose -f docker-compose.yml logs --no-color backend db frontend
 
+    - name: Dump Docker Logs on Failure
+      if: failure()
+      run: |
+        docker compose -f docker-compose.yml ps
+        docker compose -f docker-compose.yml logs --no-color backend db frontend
+
     - name: Graceful Teardown
       if: always()
       run: docker compose -f docker-compose.yml down -v

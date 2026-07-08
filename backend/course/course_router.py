@@ -27,7 +27,8 @@ class CourseCard(BaseModel):
     summary: Optional[str] = None
     level: Optional[str] = None
     xp_reward: int = 0
-    price_cents: int
+    price_cents: int = 0
+    currency: str = "SGD"
     enrollment_count: int = 0
     is_enrolled: bool = False
     is_pending_payment: bool = False
@@ -152,6 +153,8 @@ def _build_card(course, *, counts, enrolled_ids, progress_map, purchases_ids, in
         summary=_dict_str(course.content, "summary"),
         level=_dict_str(course.prerequirements, "level"),
         xp_reward=getattr(course, "xp_reward", 0) or 0,
+        price_cents=getattr(course, "price_cents", 0) or 0,
+        currency=getattr(course, "currency", "SGD") or "SGD",
         enrollment_count=counts.get(cid, 0),
         price_cents = course.price_cents,
         is_enrolled=cid in enrolled_ids,

@@ -61,6 +61,8 @@ class CourseCreate(BaseModel):
     level: Optional[str] = Field(None, max_length=50)
     tags: List[str] = Field(default_factory=list, max_length=20)
     xp_reward: int = Field(0, ge=0, le=100000)
+    price_cents: int = Field(0, ge=0, le=1_000_000)
+    currency: str = Field("SGD", min_length=3, max_length=3)
 
 
 class CourseUpdate(BaseModel):
@@ -69,6 +71,8 @@ class CourseUpdate(BaseModel):
     level: Optional[str] = Field(None, max_length=50)
     tags: Optional[List[str]] = Field(None, max_length=20)
     xp_reward: Optional[int] = Field(None, ge=0, le=100000)
+    price_cents: Optional[int] = Field(None, ge=0, le=1_000_000)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
 
 
 class CourseRead(BaseModel):
@@ -78,6 +82,8 @@ class CourseRead(BaseModel):
     level: Optional[str] = None
     tags: List[str] = []
     xp_reward: int = 0
+    price_cents: int = 0
+    currency: str = "SGD"
 
 
 # --- Schemas: Module ---
@@ -221,6 +227,8 @@ def _course_to_read(course: Course) -> CourseRead:
         level=prereq.get("level"),
         tags=list(course.tags) if isinstance(course.tags, list) else [],
         xp_reward=course.xp_reward or 0,
+        price_cents=course.price_cents or 0,
+        currency=course.currency or "SGD",
     )
 
 
@@ -272,6 +280,8 @@ async def create_course(request: CourseCreate, current_user: dict = Depends(requ
             instructor_id=uid,  # never trust a caller-supplied instructor_id
             course_name=strip_tags(request.course_name),
             xp_reward=request.xp_reward,
+            price_cents=request.price_cents,
+            currency=request.currency.upper(),
             content={"summary": sanitize_html(request.summary) if request.summary else ""},
             tags=[strip_tags(t)[:50] for t in request.tags],
             prerequirements={"level": strip_tags(request.level)} if request.level else {},
@@ -316,6 +326,10 @@ async def update_course(course_id: str, request: CourseUpdate, current_user: dic
             course.tags = [strip_tags(t)[:50] for t in request.tags]
         if request.xp_reward is not None:
             course.xp_reward = request.xp_reward
+        if request.price_cents is not None:
+            course.price_cents = request.price_cents
+        if request.currency is not None:
+            course.currency = request.currency.upper()
         session.commit()
         session.refresh(course)
         return _course_to_read(course)
