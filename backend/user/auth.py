@@ -89,7 +89,7 @@ _ph = PasswordHasher(
     memory_cost=65536,    # 64 MiB expressed in KiB (SR-02: >= 64MB)
     parallelism=4,        # lanes (SR-02: 4)
     hash_len=32,
-    salt_len=16,
+    salt_len=16,          # Randomly generated salt
     type=Type.ID,         # Argon2id (SR-02)
 )
 

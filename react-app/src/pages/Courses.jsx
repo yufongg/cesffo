@@ -153,7 +153,6 @@ export default function Courses() {
               <section className="section">
                 <div className="section__head">
                   <h2>Account level</h2>
-                  <Link to="/leaderboard" className="count">See your ranking →</Link>
                 </div>
 
                 <div className="account-level">

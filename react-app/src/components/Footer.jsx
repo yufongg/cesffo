@@ -22,27 +22,18 @@ export default function Footer() {
           <div className="footer__col">
             <h4>Learn</h4>
             <ul>
-              <li><Link to="/">Courses</Link></li>
-              <li><Link to="/">Resources</Link></li>
-              <li><Link to="/">Pricing</Link></li>
+              <li><Link to="/courses">My Learning</Link></li>
+              <li><Link to="/marketplace">Marketplace</Link></li>
+              <li><Link to="/forums">Forums</Link></li>
             </ul>
           </div>
 
           <div className="footer__col">
-            <h4>Company</h4>
+            <h4>Account</h4>
             <ul>
-              <li><Link to="/">About</Link></li>
+              <li><Link to="/updateProfile">My Profile</Link></li>
+              <li><Link to="/help">Help &amp; support</Link></li>
               <li><Link to="/help">Contact</Link></li>
-              <li><Link to="/">Careers</Link></li>
-            </ul>
-          </div>
-
-          <div className="footer__col">
-            <h4>Legal</h4>
-            <ul>
-              <li><Link to="/">Privacy</Link></li>
-              <li><Link to="/">Terms</Link></li>
-              <li><Link to="/">Security</Link></li>
             </ul>
           </div>
         </div>
