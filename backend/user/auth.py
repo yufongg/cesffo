@@ -17,6 +17,7 @@ from core.account_lockout import LOCKOUT_TIMER
 from core.securedCookie import ACCESS_TOKEN_EXPIRE_MINUTES
 
 from common.encryption import blind_index
+from common.pwned import is_pwned
 from db.db import get_db_session
 from model.models import User, PendingRegistration, LoginChallenge, PasswordChangeChallenge
 
@@ -81,7 +82,6 @@ MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
 # Characters accepted as "special" for the SR-01 complexity check. Kept broad so
 # password managers and generated temp passwords can satisfy the rule.
-SPECIAL_CHARS = "!@#$%^&*()-_=+[]{};:,.<>?/|~`\"'\\"
 
 # Single shared hasher instance (thread-safe). Parameters are pinned explicitly to
 # satisfy SR-02 (Argon2id, 64 MiB memory, 3 iterations, parallelism 4) instead of
@@ -103,13 +103,6 @@ _DUMMY_HASH = _ph.hash("timing-equalizer-not-a-real-password")
 AUTH_SUCCESS = "Authentication Success"
 AUTH_FAILURE = "Authentication Failed"
 
-# A tiny illustrative blocklist. In production, check against the Have I Been
-# Pwned k-anonymity API (send only the first 5 SHA-1 chars) or a local copy.
-COMMON_PASSWORDS = {
-    "password", "password1", "password123", "123456", "12345678",
-    "qwerty", "letmein", "admin", "welcome", "iloveyou", "abc123",
-    "changeme", "passw0rd",
-}
 
 
 class ExistingUserError(Exception):
@@ -213,22 +206,22 @@ def validate_password_strength(password: str, *, username: str = "", email: str 
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Max allowed password length is {MAX_PASSWORD_LENGTH} characters long")
-    if not any(c.isupper() for c in password):
-        raise PasswordPolicyError("Password must include at least one uppercase letter")
     if not any(c.islower() for c in password):
         raise PasswordPolicyError("Password must include at least one lowercase letter")
-    if not any(c.isdigit() for c in password):
-        raise PasswordPolicyError("Password must include at least one number")
-    if not any(c in SPECIAL_CHARS for c in password):
-        raise PasswordPolicyError("Password must include at least one special character")
-    if password.lower() in COMMON_PASSWORDS:
-        raise PasswordPolicyError("Password is too common; please choose a less predictable one")
-    
+
     lowered = password.lower()
     if username and username.lower() in lowered:
         raise PasswordPolicyError("Password must not contain your username")
     if email and email.split("@")[0].lower() in lowered:
         raise PasswordPolicyError("Password must not contain your email")
+
+   
+    #! reject passwords known to appear in real breaches via the HIBP k-anonymity API. Runs last so
+    #! it only fires for passwords that already pass every rule
+    if is_pwned(password):
+        raise PasswordPolicyError(
+            "This password has appeared in a known data breach; please choose a different one"
+        )
 
 
 def create_access_token(user_id: str, role: str) -> str:
@@ -540,10 +533,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         #! password (via the reset token) before any session — no second factor here.
         raise PasswordResetRequiredError(create_reset_token(uid.hex, pwd_hash))
 
-    #! Password OK, but authentication is NOT complete: stage a login challenge and
-    #! demand the emailed 6-digit code. No session token is issued until it is
-    #! confirmed (see verify_login_otp). The code is returned only so the caller can
-    #! email it out of band — it is never sent to the client.
+
     code = _issue_login_challenge(uid)
     raise LoginOtpRequiredError(email=email, username=username, code=code)
 

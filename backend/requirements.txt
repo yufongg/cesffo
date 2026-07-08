@@ -19,7 +19,7 @@ bandit
 ruff
 pytest
 pytest-asyncio
-httpx2
+httpx
 slowapi
 python-multipart
 bleach
