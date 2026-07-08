@@ -392,10 +392,15 @@ class CourseEnrollment(Base):
     progress = Column(Float, default=0.0, nullable=False)
     enrolled_date = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
+    payment_status = Column(String(20), default="failed", nullable=False)  # pending, paid, failed, refunded
+    stripe_payment_id = Column(String(255), nullable=True)  # Stripe PaymentIntent ID
+    amount_paid = Column(Integer, default=0, nullable=True)  # Amount in cents
+    currency = Column(String(3), default="SGD", nullable=True)
 
     #? Relationships
     course = relationship("Course", back_populates="enrollments")
     #^ Reverse User.enrollments link intentionally omitted (see the User model note).
+
 
 # --- NOTIFICATION MODEL ---
 class Notification(Base):
