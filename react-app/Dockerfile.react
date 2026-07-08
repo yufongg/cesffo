@@ -5,7 +5,7 @@
 # --- Stage 1: dependencies + source (dev target) ---
 # Node >= 20 is required by react-router v7; 24 matches the npm that
 # generated package-lock.json so `npm ci` resolves identically.
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 
 WORKDIR /app
 
