@@ -9,9 +9,9 @@ from model.constants import PaymentStatus
 # from core.security import get_current_user
 from db.db import get_db_session
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1/stripe", tags=["Stripe"])
 
-@router.post("/stripe/webhook", status_code=200)
+@router.post("/webhook", status_code=200)
 async def stripe_webhook(request: Request):
     """
     Handle Stripe webhook events.
