@@ -114,6 +114,10 @@ jobs:
         echo "POSTGRES_DB=finwise_test_db" >> .env
         echo "POSTGRES_SECRET=password123" >> .env 
         echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
+        echo "STRIPE_MODE=test" >> .env 
+        echo "STRIPE_PUBLIC=pk_test_51TgFVt8OYVYuEJHA9XKhsQ5xfau9w4jaYIAaXr9xID1GUti2BqO0s1b3QuVrnW1y7Ghg3Jal9nEHAnIJH3o2C2ZF00evCctGVW" >> .env 
+        echo "STRIPE_SECRET=sk_test_51TgFVt8OYVYuEJHAD6UaYGnPRwyFyrUlRMwvM7AUJkYKdgqRbwFaKWgIgdaou9THu6ylFmYgD2u9ZMJDSvQk4bOX00eUOWygio" >> .env 
+        echo "STRIPE_WEBHOOK_SECRET=whsec_VbF5wFjWFVA064TGrThrDXKhsQ5xfdZ" >> .env 
 
     - name: Spin up docker instances
       run: docker compose -f docker-compose.yml up --build -d

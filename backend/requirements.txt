@@ -11,11 +11,12 @@ psycopg2==2.9.12
 sqlalchemy==2.0.51
 jinja2==3.1.6
 nh3==0.3.6
+stripe>=11.0.0
+slowapi==0.1.10
+python-multipart==0.0.32
 
 bandit==1.9.4
 ruff==0.15.20
 pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx==0.28.1
-slowapi==0.1.10
-python-multipart==0.0.32

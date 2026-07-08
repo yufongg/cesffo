@@ -57,20 +57,28 @@ COURSES = [
     {"name": "Taxes Made Simple",                        "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],      "summary": "Understand how income tax works and keep more of what you earn.", "price_cents": 999},
     {"name": "Intro to Cryptocurrency & Risk",          "level": "Advanced",     "tags": ["Crypto", "Investing"],            "summary": "How crypto works, the real risks, and how to evaluate it soberly.", "price_cents": 3499},
     {"name": "Building Multiple Income Streams",        "level": "Advanced",     "tags": ["Income", "Entrepreneurship"],     "summary": "Side income, freelancing, and turning skills into earnings.", "price_cents": 3999},
+    # Low-cost courses (100 cents)
+    {"name": "Budgeting Basics: Quick Start",             "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "A crash course in budgeting fundamentals.", "price_cents": 100},
+    {"name": "Money Math 101",                            "level": "Beginner",     "tags": ["Budgeting", "Math"],             "summary": "Master the basic math skills you need for personal finance.", "price_cents": 100},
+    {"name": "Saving Tips for Beginners",                 "level": "Beginner",     "tags": ["Saving", "Budgeting"],           "summary": "Learn practical saving tips for anyone starting out.", "price_cents": 100},
+    {"name": "Credit Score Fundamentals",                 "level": "Beginner",     "tags": ["Credit", "Debt"],                "summary": "Understand how your credit score is calculated.", "price_cents": 100},
+    {"name": "Debt Reduction 101",                        "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Strategies to reduce and eliminate debt.", "price_cents": 100},
+    {"name": "Investing for Beginners",                    "level": "Beginner",     "tags": ["Investing", "Stocks"],           "summary": "Start your investing journey with confidence.", "price_cents": 100},
+    {"name": "Tax Basics",                                 "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],     "summary": "Essential tax knowledge for every taxpayer.", "price_cents": 100},
 ]
 
-# Which courses each student is enrolled in, with progress (0.0 - 1.0).
+# Which courses each student is enrolled in, with progress (0.0 - 1.0). and payment status
 ENROLLMENTS = {
-    "demo":  [("Budgeting 101: Take Control of Your Money", 0.65),
-              ("Understanding Credit Scores", 0.20),
-              ("Investing Fundamentals", 1.0)],
-    "alex":  [("Budgeting 101: Take Control of Your Money", 0.4),
-              ("Investing Fundamentals", 0.8),
-              ("Index Funds & ETFs Explained", 0.1)],
-    "maria": [("Building an Emergency Fund", 0.5),
-              ("Getting Out of Debt", 0.3),
-              ("Retirement Planning Essentials", 0.15),
-              ("Taxes Made Simple", 0.9)],
+    "demo":  [("Budgeting 101: Take Control of Your Money", 0.65, "paid"),
+              ("Understanding Credit Scores", 0.20, "paid"),
+              ("Investing Fundamentals", 1.0, "paid")],
+    "alex":  [("Budgeting 101: Take Control of Your Money", 0.4, "paid"),
+              ("Investing Fundamentals", 0.8, "failed"),
+              ("Index Funds & ETFs Explained", 0.1,"paid")],
+    "maria": [("Building an Emergency Fund", 0.5,"paid"),
+              ("Getting Out of Debt", 0.3, "paid"),
+              ("Retirement Planning Essentials", 0.15, "paid"),
+              ("Taxes Made Simple", 0.9, "failed")],
 }
 
 # Discussion-forum starter threads, keyed by category slug. Each seeds one
@@ -551,7 +559,7 @@ def get_or_create_course(session, spec, instructor_id) -> Course:
     return course
 
 
-def get_or_create_enrollment(session, course_id, student_id, progress) -> None:
+def get_or_create_enrollment(session, course_id, student_id, progress, payment_status="paid", stripe_payment_id=None) -> None:
     existing = session.scalar(
         select(CourseEnrollment).where(
             CourseEnrollment.course_id == course_id,
@@ -565,6 +573,10 @@ def get_or_create_enrollment(session, course_id, student_id, progress) -> None:
         student_id=student_id,
         progress=progress,
         dropped=False,
+        payment_status=payment_status,
+        stripe_payment_id=stripe_payment_id,
+        amount_paid=0,  # Will be populated via webhook
+        currency="SGD",
     ))
 
 
@@ -757,8 +769,12 @@ def seed() -> None:
 
         for student_key, enrolls in ENROLLMENTS.items():
             student_id = users[student_key].user_id
-            for course_name, progress in enrolls:
-                get_or_create_enrollment(session, courses[course_name].course_id, student_id, progress)
+            for course_name, progress, payment_status in enrolls:
+                for spec in COURSES:
+                    if spec.get("name", "") == course_name:
+                        price = spec.get("price_cents", 0)
+                stripe_payment_id = None if price == 0 else f"pi_{course_name}_{student_key}"
+                get_or_create_enrollment(session, courses[course_name].course_id, student_id, progress, payment_status, stripe_payment_id)
 
         # Derive each learner's XP/level from their (capped) progress so the
         # leaderboard columns hold realistic, self-consistent data.

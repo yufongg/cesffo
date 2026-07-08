@@ -16,6 +16,8 @@ from sqlalchemy import text
 
 from db.db import engine, Base, get_db_session
 import model.models
+from stripe_integration.config import init_stripe
+
 
 from user.auth_router import router as auth_router
 from user.admin_router import router as admin_router
@@ -24,6 +26,8 @@ from course.instructor_router import router as instructor_router
 from course.learn_router import router as learn_router
 from course.cart_router import router as cart_router
 from forum.forum_router import router as forum_router
+from stripe_integration.webhook_router import router as stripe_router
+
 from pathlib import Path
 
 # Runtime environment ("production" enables the hardening below).
@@ -64,6 +68,11 @@ def ensure_schema():
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0',
         "ALTER TABLE course ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'SGD'",
+        'ALTER TABLE "course_enrollments" ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) NOT NULL DEFAULT \'failed\'',
+        'ALTER TABLE "course_enrollments" ADD COLUMN IF NOT EXISTS stripe_payment_id VARCHAR(255)',
+        'ALTER TABLE "course_enrollments" ADD COLUMN IF NOT EXISTS amount_paid INTEGER',
+        'ALTER TABLE "course_enrollments" ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT \'SGD\'',
+
         # Forum: column added to the pre-existing post table by the merged
         # discussion-forum feature (new forum tables are made by create_all()).
         'ALTER TABLE post ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE',
@@ -71,6 +80,11 @@ def ensure_schema():
         'ALTER TABLE pending_registration ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
         'ALTER TABLE login_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
         'ALTER TABLE password_change_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
+        # update error log
+        'ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS error_trace TEXT',
+        'ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS error_type VARCHAR(50)',
+        'ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS error_message TEXT',
+        'ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS error_code INTEGER',
     ]
     with engine.begin() as conn:
         for statement in migrations:
@@ -83,6 +97,7 @@ async def lifespan(app: FastAPI):
     model.models
     Base.metadata.create_all(bind=engine)
     ensure_schema()  # bring existing tables up to date with the current models
+    init_stripe()
     yield
 
 # Interactive API docs leak the full endpoint/schema surface, so turn them off
@@ -168,6 +183,7 @@ app.include_router(instructor_router)
 app.include_router(learn_router)
 app.include_router(cart_router)
 app.include_router(forum_router)
+app.include_router(stripe_router)
 
 
 

@@ -47,10 +47,11 @@ class _SessionCtx:
 
 # Fake DB session that returns controlled cart, course, and enrollment rows
 class _FakeCartSession:
-    def __init__(self, *, course, cart=None, enrolled=False):
+    def __init__(self, *, course, cart=None, enrolled=False, user=None):
         self.course = course
         self.cart = cart
         self.enrolled = enrolled
+        self.user = user
         self.added = []
         self.flushed = 0
 
@@ -74,6 +75,11 @@ class _FakeCartSession:
 
     def execute(self, *_args, **_kwargs):
         return _ExecuteResult([])
+
+    def get(self, model, ident):
+        if model.__name__ == "User":
+            return self.user
+        return None
 
     def add(self, obj):
         self.added.append(obj)
@@ -158,13 +164,16 @@ def test_checkout_enrolls_courses_and_clears_cart(monkeypatch):
     user_id = uuid4()
     course = _course(price_cents=1999)
     cart = _cart(user_id, [course.course_id.hex])
-    session = _FakeCartSession(course=course, cart=cart, enrolled=False)
+    fake_user = SimpleNamespace(user_id=user_id, email="test@example.com")
+    session = _FakeCartSession(course=course, cart=cart, enrolled=False, user=fake_user)
     monkeypatch.setattr(cart_router, "get_db_session", lambda: _SessionCtx(session))
+    monkeypatch.setattr(cart_router, "create_checkout_session",
+                        lambda details, user: {"id": "cs_test_123", "url": "https://checkout.example.com/pay"})
 
     current_user = {"user_id": user_id.hex, "role": "student"}
     response = asyncio.run(cart_router.checkout_cart(_request(), current_user))
 
-    assert response.enrolled == [course.course_id.hex]
+    assert response.enrolled == []
     assert response.total_cents == 1999
     assert cart.cart_items == []
     assert any(obj.__class__.__name__ == "CourseEnrollment" for obj in session.added)
@@ -172,7 +181,8 @@ def test_checkout_enrolls_courses_and_clears_cart(monkeypatch):
 
 def test_checkout_rejects_empty_cart(monkeypatch):
     user_id = uuid4()
-    session = _FakeCartSession(course=_course(), cart=_cart(user_id))
+    fake_user = SimpleNamespace(user_id=user_id, email="test@example.com")
+    session = _FakeCartSession(course=_course(), cart=_cart(user_id), user=fake_user)
     monkeypatch.setattr(cart_router, "get_db_session", lambda: _SessionCtx(session))
 
     with pytest.raises(HTTPException) as exc:
