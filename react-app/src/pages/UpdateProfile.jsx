@@ -204,10 +204,9 @@ export default function UpdateProfile() {
                   placeholder="Enter new password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  autoComplete="new-password" required minLength={10} />
+                  autoComplete="new-password" required minLength={8} />
                 <small className="field__hint">
-                  At least 10 characters with an uppercase, lowercase, number and
-                  special character. Avoid your username or email.
+                  At least 8 characters. Avoid your username or email.
                 </small>
               </div>
 
