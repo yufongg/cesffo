@@ -32,14 +32,24 @@ def test_seed_is_idempotent():
     assert before == after
 
 
-def test_enrolled_student_can_open_seeded_course_and_see_quiz():
+def test_enrolled_student_can_open_seeded_course_and_see_quiz(monkeypatch):
+    # Login is two-step: the password step stages an emailed OTP and issues NO
+    # session. Pin the generated code so the test can complete the second step.
+    monkeypatch.setattr("user.auth.generate_verification_code", lambda: "424242")
+
     login = client.post(
         "/api/v1/auth/login",
         json={"email": DEMO_STUDENT_EMAIL, "password": DEMO_STUDENT_PASSWORD},
     )
     assert login.status_code == 200
-    # Auth is now an httpOnly cookie; TestClient's cookie jar stores it from the
-    # login response and replays it on subsequent requests automatically.
+
+    verify = client.post(
+        "/api/v1/auth/login/verify",
+        json={"email": DEMO_STUDENT_EMAIL, "code": "424242"},
+    )
+    assert verify.status_code == 200
+    # Auth is an httpOnly cookie set on the verify response; TestClient's cookie
+    # jar stores it and replays it on subsequent requests automatically.
 
     with get_db_session() as session:
         course = session.scalar(select(Course).where(Course.course_name == DEMO_COURSE_NAME))

@@ -320,5 +320,6 @@ vite.config.ts.timestamp-*
 
 .gitignore
 
+
 # Uploaded forum images
 backend/uploads/forum/

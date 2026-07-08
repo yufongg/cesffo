@@ -12,6 +12,7 @@ from model.models import (
 )
 from common.sanitize import sanitize_html, strip_tags
 from common.audit import log_action
+from common.course_fields import course_summary, course_level, course_tags
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid, client_ip as _client_ip
 from user.auth import ROLE_ADMIN
 from user.auth_router import require_instructor
@@ -22,6 +23,28 @@ MAX_TITLE_LEN = 255
 MAX_BODY_LEN = 20000
 ALLOWED_MEDIA_TYPES = frozenset({"video", "image", "audio", "document"})
 ACTIVITY_TYPES = Literal["mcq_single", "mcq_multi", "short_answer"]
+MCQ_TYPES = ("mcq_single", "mcq_multi")
+
+
+# --- Answer-key rules (one source of truth for create + update) ---
+def mcq_options_error(activity_type: str, options) -> Optional[str]:
+    #* Validate an MCQ option set against its type. Returns an error message, or None if valid.
+    #^ Shared so create (full validation) and update (partial PATCH) can't drift apart.
+    if len(options) < 2:
+        return "MCQ activities need at least 2 options"
+    correct_count = sum(1 for o in options if o.is_correct)
+    if activity_type == "mcq_single" and correct_count != 1:
+        return "mcq_single requires exactly one correct option"
+    if activity_type == "mcq_multi" and correct_count < 1:
+        return "mcq_multi requires at least one correct option"
+    return None
+
+
+def short_answer_error(correct_answers) -> Optional[str]:
+    #* short_answer needs at least one non-blank accepted answer. Returns a message, or None if valid.
+    if not correct_answers or not any(a.strip() for a in correct_answers):
+        return "short_answer requires at least one accepted answer"
+    return None
 
 
 # --- Helpers ---
@@ -183,17 +206,14 @@ class InteractiveActivityCreate(BaseModel):
 
     @model_validator(mode="after")
     def _check_answer_key(self):
-        if self.activity_type in ("mcq_single", "mcq_multi"):
-            if not self.options or len(self.options) < 2:
+        if self.activity_type in MCQ_TYPES:
+            if not self.options:
                 raise ValueError("MCQ activities need at least 2 options")
-            correct_count = sum(1 for o in self.options if o.is_correct)
-            if self.activity_type == "mcq_single" and correct_count != 1:
-                raise ValueError("mcq_single requires exactly one correct option")
-            if self.activity_type == "mcq_multi" and correct_count < 1:
-                raise ValueError("mcq_multi requires at least one correct option")
+            error = mcq_options_error(self.activity_type, self.options)
         else:  # short_answer
-            if not self.correct_answers or not any(a.strip() for a in self.correct_answers):
-                raise ValueError("short_answer requires at least one accepted answer")
+            error = short_answer_error(self.correct_answers)
+        if error:
+            raise ValueError(error)
         return self
 
 
@@ -218,14 +238,12 @@ class InteractiveActivityRead(BaseModel):
 
 # --- Mapping helpers ---
 def _course_to_read(course: Course) -> CourseRead:
-    content = course.content if isinstance(course.content, dict) else {}
-    prereq = course.prerequirements if isinstance(course.prerequirements, dict) else {}
     return CourseRead(
         course_id=course.course_id.hex,
         course_name=course.course_name,
-        summary=content.get("summary"),
-        level=prereq.get("level"),
-        tags=list(course.tags) if isinstance(course.tags, list) else [],
+        summary=course_summary(course),
+        level=course_level(course),
+        tags=course_tags(course),
         xp_reward=course.xp_reward or 0,
         price_cents=course.price_cents or 0,
         currency=course.currency or "SGD",
@@ -277,7 +295,7 @@ async def create_course(request: CourseCreate, current_user: dict = Depends(requ
     uid = _parse_uid(current_user)
     with get_db_session() as session:
         course = Course(
-            instructor_id=uid,  # never trust a caller-supplied instructor_id
+            instructor_id=uid,  #! always the JWT user — never a caller-supplied instructor_id
             course_name=strip_tags(request.course_name),
             xp_reward=request.xp_reward,
             price_cents=request.price_cents,
@@ -578,25 +596,21 @@ async def update_activity(activity_id: str, request: InteractiveActivityUpdate, 
     with get_db_session() as session:
         activity = _require_owned_activity(session, aid, current_user)
 
-        # The update schema is partial and carries no activity_type, so the
-        # answer-key invariants enforced at creation must be re-checked here
-        # against the stored type — otherwise a PATCH could corrupt the key
-        # (e.g. an MCQ left with zero correct options).
+        #! The PATCH body is partial and has no activity_type, so re-check the answer-key
+        #! invariants against the STORED type here — otherwise a partial update could
+        #! corrupt the key (e.g. leave an MCQ with zero correct options).
         if request.options is not None:
-            if activity.activity_type not in ("mcq_single", "mcq_multi"):
+            if activity.activity_type not in MCQ_TYPES:
                 raise HTTPException(status_code=400, detail="Options apply only to MCQ activities")
-            if len(request.options) < 2:
-                raise HTTPException(status_code=400, detail="MCQ activities need at least 2 options")
-            correct_count = sum(1 for o in request.options if o.is_correct)
-            if activity.activity_type == "mcq_single" and correct_count != 1:
-                raise HTTPException(status_code=400, detail="mcq_single requires exactly one correct option")
-            if activity.activity_type == "mcq_multi" and correct_count < 1:
-                raise HTTPException(status_code=400, detail="mcq_multi requires at least one correct option")
+            error = mcq_options_error(activity.activity_type, request.options)
+            if error:
+                raise HTTPException(status_code=400, detail=error)
         if request.correct_answers is not None:
             if activity.activity_type != "short_answer":
                 raise HTTPException(status_code=400, detail="Accepted answers apply only to short-answer activities")
-            if not any(a.strip() for a in request.correct_answers):
-                raise HTTPException(status_code=400, detail="short_answer requires at least one accepted answer")
+            error = short_answer_error(request.correct_answers)
+            if error:
+                raise HTTPException(status_code=400, detail=error)
 
         if request.title is not None:
             activity.title = strip_tags(request.title)

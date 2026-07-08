@@ -7,9 +7,15 @@ from sqlalchemy import select
 
 from core.rate_limit import limiter
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
+from common.course_fields import (
+    course_summary, course_level, course_tags, instructor_names as _instructor_names,
+)
 from db.db import get_db_session
 from model.models import Cart, Course, CourseEnrollment, User
+from model.constants import PaymentStatus
+
 from user.auth_router import get_current_user
+from stripe_integration.service import create_checkout_session
 
 
 router = APIRouter(prefix="/api/v1/cart", tags=["Cart"])
@@ -42,6 +48,9 @@ class CheckoutResponse(BaseModel):
     item_count: int
     total_cents: int
     currency: str = DEFAULT_CURRENCY
+    redirect_url: str
+    session_id: Optional[str] = None
+
 
 
 # --- Helpers ---
@@ -61,22 +70,6 @@ def _safe_cart_ids(value) -> List[str]:
     return result
 
 
-def _course_summary(course: Course) -> Optional[str]:
-    content = course.content if isinstance(course.content, dict) else {}
-    summary = content.get("summary")
-    return summary if isinstance(summary, str) else None
-
-
-def _course_level(course: Course) -> Optional[str]:
-    prereq = course.prerequirements if isinstance(course.prerequirements, dict) else {}
-    level = prereq.get("level")
-    return level if isinstance(level, str) else None
-
-
-def _course_tags(course: Course) -> List[str]:
-    return [str(t) for t in course.tags if isinstance(t, (str, int, float))] if isinstance(course.tags, list) else []
-
-
 def _get_or_create_cart(session, user_id: UUID) -> Cart:
     cart = session.scalar(select(Cart).where(Cart.user_id == user_id))
     if cart is None:
@@ -94,14 +87,6 @@ def _active_enrolled_ids(session, user_id: UUID) -> set[UUID]:
         )
     ).all()
     return set(rows)
-
-
-def _instructor_names(session, courses: List[Course]) -> dict:
-    ids = {course.instructor_id for course in courses if course.instructor_id}
-    if not ids:
-        return {}
-    rows = session.execute(select(User.user_id, User.username).where(User.user_id.in_(ids))).all()
-    return {user_id: username for user_id, username in rows}
 
 
 def _cart_response(session, cart: Cart, user_id: UUID) -> CartResponse:
@@ -129,9 +114,9 @@ def _cart_response(session, cart: Cart, user_id: UUID) -> CartResponse:
             course_id=course.course_id.hex,
             course_name=course.course_name,
             instructor=names.get(course.instructor_id),
-            summary=_course_summary(course),
-            level=_course_level(course),
-            tags=_course_tags(course),
+            summary=course_summary(course),
+            level=course_level(course),
+            tags=course_tags(course),
             xp_reward=course.xp_reward or 0,
             price_cents=course.price_cents or 0,
             currency=course.currency or DEFAULT_CURRENCY,
@@ -193,6 +178,10 @@ async def remove_cart_item(course_id: str, current_user: dict = Depends(get_curr
 async def checkout_cart(request: Request, current_user: dict = Depends(get_current_user)):
     user_id = _parse_uid(current_user)
     with get_db_session() as session:
+        checkout_user = session.get(User, user_id)
+        if not checkout_user:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        
         cart = _get_or_create_cart(session, user_id)
         cart_ids = _safe_cart_ids(cart.cart_items)
         if not cart_ids:
@@ -208,8 +197,12 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
 
         enrolled = []
         skipped = []
+        await_payment = []  # Store course objects here, not just IDs
+        pending_enrollments = [] # Store new course enrollments that are waiting for user payment
         total = 0
         currency = ordered_courses[0].currency or DEFAULT_CURRENCY
+        course_details = []  # Build course details for Stripe line items
+
         for course in ordered_courses:
             total += course.price_cents or 0
             existing = session.scalar(
@@ -221,25 +214,65 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
             if existing:
                 if existing.dropped:
                     existing.dropped = False
+                    existing.payment_status = PaymentStatus.PAID
                     enrolled.append(course.course_id.hex)
-                else:
+                    continue
+                elif existing.payment_status != PaymentStatus.FAILED:
                     skipped.append(course.course_id.hex)
-                continue
+                    continue
+                
+            # Build course details for Stripe line items from database
+            content = course.content if isinstance(course.content, dict) else {}
+            summary = content.get("summary", "")
+            course_details.append({
+                "id": course.course_id,
+                "name": course.course_name,
+                "price_cents": course.price_cents or 0,
+                "currency": course.currency or DEFAULT_CURRENCY,
+                "description": summary
+            })
 
-            session.add(CourseEnrollment(
-                course_id=course.course_id,
-                student_id=user_id,
-                progress=0.0,
-                dropped=False,
-            ))
-            enrolled.append(course.course_id.hex)
+            if course.price_cents == 0:
+                session.add(CourseEnrollment(
+                    course_id=course.course_id,
+                    student_id=user_id,
+                    progress=0.0,
+                    dropped=False,
+                    payment_status = PaymentStatus.PAID
+                ))
+                enrolled.append(course.course_id.hex)
+            else:
+                new_pending_enrollment = CourseEnrollment(
+                    course_id=course.course_id,
+                    student_id=user_id,
+                    progress=0.0,
+                    dropped=False,
+                    payment_status = PaymentStatus.PENDING
+                )
+                session.add(new_pending_enrollment)
+                pending_enrollments.append(new_pending_enrollment)
+                await_payment.append(course)  # Store course object, not just ID
 
+        
+        # Clear cart and flush before redirect
         cart.cart_items = []
         session.flush()
+        # Pass course details to create_checkout_session
+        stripe_session = create_checkout_session(course_details, checkout_user)
+        session_id = stripe_session.get("id")
+
+        if session_id:
+            for enrollment in pending_enrollments:
+                enrollment.stripe_payment_id = session_id
+            
+            # Flush changes so they're sent to the database state engine
+            session.flush()
+        
         return CheckoutResponse(
             enrolled=enrolled,
             skipped_already_enrolled=skipped,
             item_count=len(ordered_courses),
             total_cents=total,
             currency=currency,
+            redirect_url=stripe_session.get("url")
         )

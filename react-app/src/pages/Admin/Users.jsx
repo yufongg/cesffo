@@ -10,7 +10,6 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tempPassword, setTempPassword] = useState(null); // { username, password }
   const [newUser, setNewUser] = useState({ email: '', username: '', role: 'student' });
 
   const load = useCallback(async () => {
@@ -69,11 +68,10 @@ export default function AdminUsers() {
 
   async function resetPassword(user) {
     await run(async () => {
-      const res = await apiFetch(`/api/v1/admin/users/${user.user_id}/reset-password`, {
+      await apiFetch(`/api/v1/admin/users/${user.user_id}/reset-password`, {
         method: 'POST',
       });
-      setTempPassword({ username: user.username, password: res.temp_password });
-      flash(`Password reset for ${user.username}.`);
+      flash(`A password reset link has been emailed to ${user.username}. Their current password stays valid until they use it.`);
       load();
     });
   }
@@ -81,12 +79,11 @@ export default function AdminUsers() {
   async function createUser(e) {
     e.preventDefault();
     await run(async () => {
-      const res = await apiFetch('/api/v1/admin/users', {
+      await apiFetch('/api/v1/admin/users', {
         method: 'POST',
         body: newUser,
       });
-      setTempPassword({ username: newUser.username, password: res.temp_password });
-      flash(`Created user ${newUser.username}.`);
+      flash(`Created user ${newUser.username}. A link to set their password has been emailed to them.`);
       setNewUser({ email: '', username: '', role: 'student' });
       load();
     });
@@ -103,19 +100,6 @@ export default function AdminUsers() {
 
         {error && <p role="alert" className="alert alert--error">{error}</p>}
         {notice && <p className="alert alert--success">{notice}</p>}
-
-        {tempPassword && (
-          <div className="callout">
-            <strong>One-time password for {tempPassword.username}:</strong>
-            <code>{tempPassword.password}</code>
-            <span style={{ flexBasis: '100%', fontSize: '13px' }}>
-              Copy it now and share over a secure channel — it will not be shown again.
-            </span>
-            <button onClick={() => setTempPassword(null)} className="btn btn--secondary btn--sm">
-              Dismiss
-            </button>
-          </div>
-        )}
 
         {/* Create user */}
         <form onSubmit={createUser} className="toolbar">

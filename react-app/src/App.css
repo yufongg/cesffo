@@ -471,6 +471,28 @@
   border-color: #fde68a;
 }
 
+/* Inline text button that reads like a link (e.g. "Resend code"). Used where an
+   action must live inside body copy but is not a navigation <a>. */
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  text-decoration: none;
+}
+
+.btn-link:disabled {
+  color: var(--color-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
 /* ----- Auth (login / register) ---------------------------------------- */
 .auth {
   display: grid;
@@ -2602,7 +2624,8 @@
   border-radius: 12px;
   padding: 14px 18px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-  font-weight: 600;}
+  font-weight: 600;
+}
 /* ----- Help & Support -------------------------------------------------- */
 .support-contact {
   display: flex;

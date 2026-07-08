@@ -16,9 +16,12 @@ export default function UpdateProfile() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwStep, setPwStep] = useState('details');
+  const [pwCode, setPwCode] = useState('');
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [pwSaving, setPwSaving] = useState(false);
+  const [pwResending, setPwResending] = useState(false);
 
   // Seed the form once the profile loads (it arrives asynchronously).
   useEffect(() => {
@@ -73,22 +76,51 @@ export default function UpdateProfile() {
 
     setPwSaving(true);
     try {
-      await apiFetch('/api/v1/auth/change-my-password', {
-        method: 'POST',
-        body: {
-          current_password: currentPassword,
-          new_password: newPassword,
-          new_password_confirm: confirmPassword,
-        },
-      });
-      setPwSuccess('Your password has been changed.');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      const body = {
+        current_password: currentPassword,
+        new_password: newPassword,
+        new_password_confirm: confirmPassword,
+      };
+
+      if (pwStep === 'details') {
+        const data = await apiFetch('/api/v1/auth/change-my-password/request-otp', {
+          method: 'POST',
+          body,
+        });
+        setPwStep('otp');
+        setPwSuccess(data.detail || 'We emailed you a 6-digit confirmation code.');
+      } else {
+        await apiFetch('/api/v1/auth/change-my-password', {
+          method: 'POST',
+          body: { ...body, code: pwCode },
+        });
+        setPwSuccess('Your password has been changed.');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setPwCode('');
+        setPwStep('details');
+      }
     } catch (err) {
       setPwError(err.message || 'Could not change your password.');
     } finally {
       setPwSaving(false);
+    }
+  }
+
+  async function handlePasswordResend() {
+    setPwError('');
+    setPwSuccess('');
+    setPwResending(true);
+    try {
+      const data = await apiFetch('/api/v1/auth/change-my-password/resend', {
+        method: 'POST',
+      });
+      setPwSuccess(data.detail || 'If your password change is still pending, a new code has been sent.');
+    } catch (err) {
+      setPwError(err.message || 'Could not resend the code.');
+    } finally {
+      setPwResending(false);
     }
   }
 
@@ -172,10 +204,9 @@ export default function UpdateProfile() {
                   placeholder="Enter new password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  autoComplete="new-password" required minLength={10} />
+                  autoComplete="new-password" required minLength={8} />
                 <small className="field__hint">
-                  At least 10 characters with an uppercase, lowercase, number and
-                  special character. Avoid your username or email.
+                  At least 8 characters. Avoid your username or email.
                 </small>
               </div>
 
@@ -188,13 +219,46 @@ export default function UpdateProfile() {
                   autoComplete="new-password" required />
               </div>
 
+              {pwStep === 'otp' && (
+                <div className="field">
+                  <label htmlFor="pw-code" className="label">Confirmation Code</label>
+                  <input
+                    id="pw-code"
+                    type="text"
+                    className="input"
+                    value={pwCode}
+                    onChange={(e) => setPwCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    required
+                  />
+                </div>
+              )}
+
               {pwError && <p role="alert" className="alert alert--error">{pwError}</p>}
               {pwSuccess && <p role="status" className="alert alert--success">{pwSuccess}</p>}
 
               <div className="row-actions" style={{ marginTop: '8px' }}>
-                <button type="submit" disabled={pwSaving} className="btn btn--primary">
-                  {pwSaving ? 'Updating…' : 'Change password'}
+                <button
+                  type="submit"
+                  disabled={pwSaving || (pwStep === 'otp' && pwCode.length !== 6)}
+                  className="btn btn--primary"
+                >
+                  {pwSaving ? 'Updating…' : pwStep === 'otp' ? 'Confirm password change' : 'Send code'}
                 </button>
+                {pwStep === 'otp' && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={handlePasswordResend}
+                    disabled={pwResending}
+                  >
+                    {pwResending ? 'Sending…' : 'Resend code'}
+                  </button>
+                )}
               </div>
             </form>
           </div>

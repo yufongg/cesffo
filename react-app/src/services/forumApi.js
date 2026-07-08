@@ -1,3 +1,6 @@
+// Discussion-forum API calls. All requests go through the shared apiFetch, so
+// they automatically carry the Bearer token and use the same relative paths /
+// error handling as the rest of the app. Image uploads are sent as FormData.
 import { apiFetch, wsUrl } from '../api/client';
 
 export const FORUM_WS_PATH = '/api/v1/forum/ws';

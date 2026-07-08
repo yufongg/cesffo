@@ -29,6 +29,11 @@ services:
       # APP_ENV=production. Injected at runtime only — never bake it into the image.
       MASTER_KEY: ${MASTER_KEY:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Stripe environment for payment processing
+      STRIPE_MODE: ${STRIPE_MODE}
+      STRIPE_SECRET: ${STRIPE_SECRET}
+      STRIPE_PUBLIC: ${STRIPE_PUBLIC}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       # Password-reset email (Gmail SMTP). If the Gmail vars are unset the backend
       # falls back to printing the reset link to its logs instead of sending.
       GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}

@@ -13,7 +13,14 @@ services:
       - "5432:5432"
 
   frontend:
-    # Inject host syatem frontend app using bind mount
+    # Dev: build only the node stage (deps + source) and run the CRA dev server
+    # with hot reload. Production/CI uses the full multi-stage build, which
+    # serves the compiled app from nginx instead.
+    build:
+      context: ./react-app
+      dockerfile: Dockerfile.react
+      target: base
+    # Inject host system frontend app using bind mount
     volumes:
       - ./react-app:/app
       - /app/node_modules

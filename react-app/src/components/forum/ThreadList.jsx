@@ -2,10 +2,23 @@ import React, { useMemo, useState } from 'react';
 import { formatDate } from '../../utils/forumText';
 
 // Thread list for the selected category, styled with the app's card/row system.
-export default function ThreadList({ title, description, threads, selectedThreadId, lastViewedThread, onOpenThread, onStartThread, threadView, onThreadViewChange, reports}) {
+export default function ThreadList({ 
+  title, 
+  description, 
+  threads, 
+  selectedThreadId, 
+  lastViewedThread, 
+  onOpenThread, 
+  onStartThread, 
+  threadView, 
+  onThreadViewChange, 
+  reports 
+}) {
   const [sortMode, setSortMode] = useState('recent');
+
   function handleViewChange(e) {
-  onThreadViewChange(e.target.value);}
+    onThreadViewChange(e.target.value);
+  }
 
   const sortedThreads = useMemo(() => {
     const list = [...(threads || [])];
@@ -15,23 +28,14 @@ export default function ThreadList({ title, description, threads, selectedThread
     return list.sort(
       (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at),
     );
-}, [threads, sortMode]);
+  }, [threads, sortMode]);
 
   const sortedReports = useMemo(() => {
-      const list = [...(reports || [])];
-
-      if (sortMode === "oldest") {
-          return list.sort(
-              (a, b) =>
-                  new Date(a.created_at) - new Date(b.created_at)
-          );
-      }
-
-      return list.sort(
-          (a, b) =>
-              new Date(b.created_at) - new Date(a.created_at)
-      );
-
+    const list = [...(reports || [])];
+    if (sortMode === "oldest") {
+      return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    }
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [reports, sortMode]);
 
   return (
@@ -68,141 +72,86 @@ export default function ThreadList({ title, description, threads, selectedThread
       </div>
 
       {threadView === "reports" ? (
-
-    sortedReports.length === 0 ? (
-
-        <div className="empty-state">
+        sortedReports.length === 0 ? (
+          <div className="empty-state">
             <h3>No reports submitted</h3>
             <p>Reports you submit will appear here.</p>
-        </div>
-
-    ) : (
-
-        <div className="report-list">
-
-    {sortedReports.map((report) => (
-        <div
-            key={report.report_id}
-            className="report-card"
-        >
-            <div className="report-card__left">
-                <h3>{report.title}</h3>
-                <div className="report-section">
-                    <span className="report-label">
-                        Reported Content
-                    </span>
-                    <p className="report-preview">
-                        {report.reported_content}
-                    </p>
+          </div>
+        ) : (
+          <div className="report-list">
+            {sortedReports.map((report) => (
+              <div key={report.report_id} className="report-card">
+                <div className="report-card__left">
+                  <h3>{report.title}</h3>
+                  <div className="report-section">
+                    <span className="report-label">Reported Content</span>
+                    <p className="report-preview">{report.reported_content}</p>
+                  </div>
                 </div>
-            </div>
-            <div className="report-card__middle">
-                <div className="report-section">
-                    <span className="report-label">
-                        Reason
-                    </span>
+                <div className="report-card__middle">
+                  <div className="report-section">
+                    <span className="report-label">Reason</span>
                     <p>{report.reason}</p>
-                </div>
-                {report.description && (
+                  </div>
+                  {report.description && (
                     <div className="report-section">
-                        <span className="report-label">
-                            Your Description
-                        </span>
-                        <p>{report.description}</p>
+                      <span className="report-label">Your Description</span>
+                      <p>{report.description}</p>
                     </div>
-                )}
-            </div>
-            <div className="report-card__right">
-                <span
-                    className={`report-status ${report.status.toLowerCase()}`}>
+                  )}
+                </div>
+                <div className="report-card__right">
+                  <span className={`report-status ${report.status.toLowerCase()}`}>
                     {report.status}
-                </span>
-                <small>
-                    {new Date(report.created_at).toLocaleString()}
-                </small>
-            </div>
-        </div>
-    ))}
-</div>
-
-    )
-
-) : (
-
-    sortedThreads.length === 0 ? (
-
-        <div className="empty-state">
+                  </span>
+                  <small>{new Date(report.created_at).toLocaleString()}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        sortedThreads.length === 0 ? (
+          <div className="empty-state">
             <h3>No threads yet</h3>
             <p>Be the first to start a discussion in {title || "this section"}.</p>
-
-            <button
-                type="button"
-                className="btn btn--primary"
-                onClick={onStartThread}
-            >
-                Start a thread
+            <button type="button" className="btn btn--primary" onClick={onStartThread}>
+              Start a thread
             </button>
-        </div>
-
-    ) : (
-
-        <div className="forum-thread-rows">
-
+          </div>
+        ) : (
+          <div className="forum-thread-rows">
             {sortedThreads.map((thread) => (
-
-                <button
-                    type="button"
-                    key={thread.thread_id}
-                    className={`forum-thread-row ${
-                        selectedThreadId === thread.thread_id
-                            ? "selected"
-                            : ""
-                    }`}
-                    onClick={() => onOpenThread(thread.thread_id)}
-                >
-
-                    <div className="forum-thread-row__main">
-
-                        <div className="forum-thread-title">
-
-                            <h3>{thread.title}</h3>
-
-                            {lastViewedThread?.thread_id === thread.thread_id && (
-                                <span className="last-viewed-badge">
-                                    📖 Last Viewed
-                                </span>
-                            )}
-
-                        </div>
-
-                        <p>
-                            {thread.creator_name || "Unknown user"} started{" "}
-                            {formatDate(thread.created_at)}
-                        </p>
-
-                    </div>
-
-                    <div className="forum-thread-row__stats">
-                        <span><strong>{thread.post_count}</strong> posts</span>
-                        <span><strong>{thread.view_count}</strong> views</span>
-                    </div>
-
-                    <div className="forum-thread-row__last">
-                        <span>Last activity</span>
-                        <strong>
-                            {formatDate(thread.updated_at || thread.created_at)}
-                        </strong>
-                    </div>
-
-                </button>
-
+              <button
+                type="button"
+                key={thread.thread_id}
+                className={`forum-thread-row ${selectedThreadId === thread.thread_id ? "selected" : ""}`}
+                onClick={() => onOpenThread(thread.thread_id)}
+              >
+                <div className="forum-thread-row__main">
+                  <div className="forum-thread-title">
+                    <h3>{thread.title}</h3>
+                    {lastViewedThread?.thread_id === thread.thread_id && (
+                      <span className="last-viewed-badge">📖 Last Viewed</span>
+                    )}
+                  </div>
+                  <p>
+                    {thread.creator_name || "Unknown user"} started {formatDate(thread.created_at)}
+                  </p>
+                </div>
+                <div className="forum-thread-row__stats">
+                  <span><strong>{thread.post_count}</strong> posts</span>
+                  <span><strong>{thread.view_count}</strong> views</span>
+                </div>
+                <div className="forum-thread-row__last">
+                  <span>Last activity</span>
+                  <strong>{formatDate(thread.updated_at || thread.created_at)}</strong>
+                </div>
+              </button>
             ))}
-
-        </div>
-
-    )
-
-)}
+          </div>
+        )
+      )}
     </section>
   );
 }

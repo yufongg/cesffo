@@ -4,9 +4,8 @@ import { NavLink } from 'react-router-dom';
 import { CartApi } from '../services/cartApi';
 
 // Left-hand dashboard navigation, inspired by the OffSec console layout.
-//? These are presentational entry points only — the destinations (cart,
-//? achievements, etc.) are placeholders for now. Routes that don't exist yet
-//? fall through to the catch-all <NotFound/> in App.js, so nothing breaks.
+//? Every entry points at a real route registered in App.js (marketplace, cart,
+//? forums, help).
 
 // --- Icons ---
 function BrowseIcon() {
@@ -26,27 +25,6 @@ function CartIcon() {
       <circle cx="9" cy="21" r="1" />
       <circle cx="20" cy="21" r="1" />
       <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  );
-}
-
-function TrophyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" />
-      <path d="M5 9a3 3 0 0 1-3-3V5h3M19 9a3 3 0 0 0 3-3V5h-3" />
-    </svg>
-  );
-}
-
-function LeaderboardIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="18" y1="20" x2="18" y2="10" />
-      <line x1="12" y1="20" x2="12" y2="4" />
-      <line x1="6" y1="20" x2="6" y2="14" />
     </svg>
   );
 }
@@ -76,8 +54,6 @@ function SupportIcon() {
 // --- Navigation data ---
 const ITEMS = [
   { to: '/marketplace', label: 'Browse courses', Icon: BrowseIcon },
-  { to: '/achievements', label: 'Achievements', Icon: TrophyIcon },
-  { to: '/leaderboard', label: 'Leaderboard', Icon: LeaderboardIcon },
   { to: '/forums', label: 'Forums', Icon: ForumIcon },
   { to: '/help', label: 'Help & support', Icon: SupportIcon },
 ];

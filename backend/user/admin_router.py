@@ -1,7 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 from forum.schemas import (
@@ -9,11 +8,10 @@ from forum.schemas import (
     ReportGroupResponse,
     IndividualReportResponse,
 )
-
+import os
+from urllib.parse import quote
 from core.rate_limit import limiter
-from common.audit import log_action
-from common.security import to_uuid, parse_uid as _parse_uid, client_ip as _client_ip
-from common.encryption import blind_index
+from common.security import to_uuid
 from db.db import get_db_session
 from model.models import (
     User,
@@ -28,7 +26,6 @@ from .auth import (
 from .auth_router import require_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin - User Management"])
-
 
 class AdminUserView(BaseModel):
     user_id: str
@@ -75,7 +72,7 @@ def _to_view(user: User) -> AdminUserView:
 
 
 def parse_uuid(raw: str) -> UUID:
-    # Specialises the shared parser with this router's error message.
+    #* Shared UUID parser, just with this router's "user id" wording on failure.
     return to_uuid(raw, detail="Invalid user id")
 
 
@@ -94,7 +91,7 @@ def validate_role(role: str) -> str:
         )
     return role
 
-# Kinda not sure if this is needed
+#? Counts live admins (optionally excluding one) — used to block demoting/banning the last admin.
 def _count_active_admins(session, exclude_id: Optional[UUID] = None) -> int:
     stmt = select(func.count()).select_from(User).where(
         User.role == ROLE_ADMIN,
@@ -133,15 +130,13 @@ async def create_user(request: Request, req: CreateUserRequest, admin: dict = De
     hashed = hash_password(temp_password)
 
     with get_db_session() as session:
-        # email is encrypted at rest, so search by its blind index, not the value.
-        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
+        if session.scalar(select(User).where(User.email == email)):
             raise HTTPException(status_code=409, detail="A user with that email already exists")
         if session.scalar(select(User).where(User.username == username)):
             raise HTTPException(status_code=409, detail="A user with that username already exists")
 
         user = User(
             email=email,
-            email_bidx=blind_index(email),
             username=username,
             password=hashed,
             role=role,
@@ -170,12 +165,6 @@ async def assign_role(request: Request, user_id: str, req: AssignRoleRequest, ad
                 raise HTTPException(status_code=409, detail="Cannot demote the last remaining admin")
 
         user.role = role
-        # SR-11: role assignments are a security-relevant event.
-        log_action(
-            session, user_id=_parse_uid(admin), action="assign_role",
-            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
-            details={"new_role": role},
-        )
         session.commit()
         session.refresh(user)
         return _to_view(user)
@@ -200,13 +189,6 @@ async def set_status(request: Request, user_id: str, req: SetStatusRequest, admi
         user.is_active = req.is_active
         if req.is_active:
             user.auth_attempts = 0  # unlock on (re)activation
-        # SR-11: account suspension/reactivation is a security-relevant event.
-        log_action(
-            session, user_id=_parse_uid(admin),
-            action="suspend_account" if not req.is_active else "reactivate_account",
-            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
-            details={"is_active": req.is_active},
-        )
         session.commit()
         session.refresh(user)
         return _to_view(user)
@@ -238,43 +220,23 @@ async def reset_password(request: Request, user_id: str, admin: dict = Depends(r
 
     return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
 
-@router.get(
-    "/reports",
-    response_model=List[ReportGroupResponse],
-)
-async def list_reports(
-    status: str = "Pending",
-    admin: dict = Depends(require_admin),
-):
+@router.get("/reports", response_model=List[ReportGroupResponse])
+async def list_reports(status: str = "Pending", admin: dict = Depends(require_admin)):
     with get_db_session() as session:
         reports = session.scalars(
-            select(Report)
-            .where(Report.status == status)
-            .order_by(Report.created_at.desc())
+            select(Report).where(Report.status == status).order_by(Report.created_at.desc())
         ).all()
-
         grouped = {}
-
         for report in reports:
-            if report.thread_id:
-                key = f"thread-{report.thread_id}"
-            else:
-                key = f"post-{report.post_id}"
-
+            key = f"thread-{report.thread_id}" if report.thread_id else f"post-{report.post_id}"
             reporter = session.get(User, report.reporter_id)
-
             if report.thread_id:
                 thread = session.get(Thread, report.thread_id)
                 original_post = None
-
                 if thread:
                     original_post = session.scalar(
-                        select(Post).where(
-                            Post.thread_id == thread.thread_id,
-                            Post.parent_id.is_(None)
-                        )
+                        select(Post).where(Post.thread_id == thread.thread_id, Post.parent_id.is_(None))
                     )
-
                 if key not in grouped:
                     grouped[key] = {
                         "type": "Thread",
@@ -282,40 +244,25 @@ async def list_reports(
                         "reported_content": (
                             "Content removed by moderator."
                             if thread and thread.is_deleted
-                            else (
-                                original_post.content
-                                if original_post
-                                else None
-                            )
+                            else (original_post.content if original_post else None)
                         ),
                         "thread_id": thread.thread_id.hex if thread else None,
                         "post_id": None,
                         "reports": [],
                     }
-
                 grouped[key]["reports"].append(
                     IndividualReportResponse(
                         report_id=report.report_id.hex,
-                        reporter_name=(
-                            reporter.username
-                            if reporter
-                            else "Unknown"
-                        ),
+                        reporter_name=reporter.username if reporter else "Unknown",
                         reason=report.reason,
                         description=report.description,
                         status=report.status,
                         created_at=report.created_at,
                     )
                 )
-
             elif report.post_id:
                 post = session.get(Post, report.post_id)
-                thread = (
-                    session.get(Thread, post.thread_id)
-                    if post
-                    else None
-                )
-
+                thread = session.get(Thread, post.thread_id) if post else None
                 if key not in grouped:
                     grouped[key] = {
                         "type": "Reply",
@@ -323,32 +270,22 @@ async def list_reports(
                         "reported_content": (
                             "Content removed by moderator."
                             if post and post.is_deleted
-                            else (
-                                post.content
-                                if post
-                                else None
-                            )
+                            else (post.content if post else None)
                         ),
                         "thread_id": thread.thread_id.hex if thread else None,
                         "post_id": post.post_id.hex if post else None,
                         "reports": [],
                     }
-
                 grouped[key]["reports"].append(
                     IndividualReportResponse(
                         report_id=report.report_id.hex,
-                        reporter_name=(
-                            reporter.username
-                            if reporter
-                            else "Unknown"
-                        ),
+                        reporter_name=reporter.username if reporter else "Unknown",
                         reason=report.reason,
                         description=report.description,
                         status=report.status,
                         created_at=report.created_at,
                     )
                 )
-
         response = []
         for group in grouped.values():
             response.append(
@@ -362,54 +299,29 @@ async def list_reports(
                     reports=group["reports"],
                 )
             )
-
         return response
 
-
 @router.patch("/reports/{report_id}")
-async def update_report_status(
-    report_id: UUID,
-    payload: UpdateReportStatusRequest,
-    admin: dict = Depends(require_admin),
-):
-    with get_db_session() as session:
-        report = session.get(Report, report_id)
-        if not report:
-            raise HTTPException(
-                status_code=404,
-                detail="Report not found",
-            )
-
-        if report.thread_id:
-            all_reports = session.scalars(
-                select(Report).where(
-                    Report.thread_id == report.thread_id
-                )
-            ).all()
-        else:
-            all_reports = session.scalars(
-                select(Report).where(
-                    Report.post_id == report.post_id
-                )
-            ).all()
-
-        for r in all_reports:
-            r.status = payload.status
-
-        session.commit()
-        return {"success": True}
-
-
-@router.delete("/reports/{report_id}/remove")
-async def remove_reported_content(
-    report_id: UUID,
-    admin: dict = Depends(require_admin),
-):
+async def update_report_status(report_id: UUID, payload: UpdateReportStatusRequest, admin: dict = Depends(require_admin)):
     with get_db_session() as session:
         report = session.get(Report, report_id)
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        if report.thread_id:
+            all_reports = session.scalars(select(Report).where(Report.thread_id == report.thread_id)).all()
+        else:
+            all_reports = session.scalars(select(Report).where(Report.post_id == report.post_id)).all()
+        for r in all_reports:
+            r.status = payload.status
+        session.commit()
+        return {"success": True}
 
+@router.delete("/reports/{report_id}/remove")
+async def remove_reported_content(report_id: UUID, admin: dict = Depends(require_admin)):
+    with get_db_session() as session:
+        report = session.get(Report, report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
         if report.thread_id:
             thread = session.get(Thread, report.thread_id)
             if thread:
@@ -420,22 +332,11 @@ async def remove_reported_content(
             if post:
                 post.is_deleted = True
                 session.flush()  
-
         if report.thread_id:
-            all_reports = session.scalars(
-                select(Report).where(
-                    Report.thread_id == report.thread_id
-                )
-            ).all()
+            all_reports = session.scalars(select(Report).where(Report.thread_id == report.thread_id)).all()
         else:
-            all_reports = session.scalars(
-                select(Report).where(
-                    Report.post_id == report.post_id
-                )
-            ).all()
-
+            all_reports = session.scalars(select(Report).where(Report.post_id == report.post_id)).all()
         for r in all_reports:
             r.status = "Resolved"
-
         session.commit()
         return {"success": True}

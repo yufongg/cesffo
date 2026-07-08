@@ -32,12 +32,81 @@ class User(Base):
     xp = Column(Integer, default=0, nullable=False)                 # lifetime XP earned (drives leaderboards)
     level = Column(Integer, default=1, nullable=False)              # derived from xp; stored for fast ranking
 
-    # Relationships
-    # enrollments = relationship("CourseEnrollment", back_populates="student", cascade="all, delete-orphan")
+    #? Relationships
+    #^ No User.enrollments back-ref on purpose: enrollment queries go through student_id
+    #^ directly (see course_router._my_enrollments), so the reverse link is left disabled.
     cart = relationship("Cart", back_populates="user", uselist=False, cascade="all, delete-orphan")
     liked_threads = relationship("ThreadLike", back_populates="user", cascade="all, delete-orphan")
     last_viewed_thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id"), nullable=True)
     last_viewed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# --- PENDING REGISTRATION (email verification) ---
+class PendingRegistration(Base):
+    """A signup awaiting email verification. No account exists until the emailed
+    6-digit code is confirmed; only then is a real User row created (see
+    user.auth.verify_registration). Holds NO plaintext PII — only a blind index
+    of the email (for lookup) plus Argon2 hashes of the password and the code."""
+    __tablename__ = "pending_registration"
+
+    pending_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Deterministic lookup key for the email; the email itself is never stored
+    # here — the client re-supplies it at the verify step (see verify_registration).
+    email_bidx = Column(String(64), nullable=False, unique=True, index=True)
+    username = Column(String(150), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)     # Argon2 hash, moved onto User on success
+    code_hash = Column(String(255), nullable=False)         # Argon2 hash of the 6-digit code
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)      # code emails sent so far, capped server-side
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+# --- LOGIN CHALLENGE (login-time 2FA) ---
+class LoginChallenge(Base):
+    """A login awaiting its emailed 6-digit code (second factor). Created only
+    after the password is verified; no session is issued until the code is
+    confirmed (see user.auth.verify_login_otp). Holds NO plaintext PII — only the
+    user id and an Argon2 hash of the code. One in-flight challenge per user: a
+    fresh login attempt overwrites the previous row."""
+    __tablename__ = "login_challenge"
+
+    challenge_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # One outstanding challenge per user; a new login attempt replaces the old one.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    code_hash = Column(String(255), nullable=False)         # Argon2 hash of the 6-digit code
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)   # wrong-code guesses so far (capped server-side)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)      # code emails sent so far, capped server-side
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+# --- PASSWORD CHANGE CHALLENGE (logged-in password update OTP) ---
+class PasswordChangeChallenge(Base):
+    """A logged-in password change awaiting an emailed 6-digit code. Created
+    only after the current password and proposed new password pass preflight;
+    the password changes only when the code is confirmed."""
+    __tablename__ = "password_change_challenge"
+
+    challenge_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    code_hash = Column(String(255), nullable=False)
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)
+    password_fingerprint = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 # --- CATEGORY MODEL ---
@@ -336,17 +405,21 @@ class PostReport(Base):
 class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
 
-    enrollment_id = Column(Integer, primary_key=True, autoincrement=True) # serial id, do not use on client side
+    enrollment_id = Column(Integer, primary_key=True, autoincrement=True)  #! internal serial id — never expose to the client
     course_id = Column(UUID(as_uuid=True), ForeignKey("course.course_id", ondelete="CASCADE"), nullable=False)
     student_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="SET NULL"), nullable=True)
     progress = Column(Float, default=0.0, nullable=False)
-    enrolled_date = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
+    enrolled_date = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
+    payment_status = Column(String(20), default="failed", nullable=False)  # pending, paid, failed, refunded
+    stripe_payment_id = Column(String(255), nullable=True)  # Stripe PaymentIntent ID
+    amount_paid = Column(Integer, default=0, nullable=True)  # Amount in cents
+    currency = Column(String(3), default="SGD", nullable=True)
 
-    
-    # Relationships
+    #? Relationships
     course = relationship("Course", back_populates="enrollments")
-    # student = relationship("User", back_populates="enrollments")
+    #^ Reverse User.enrollments link intentionally omitted (see the User model note).
+
 
 # --- NOTIFICATION MODEL ---
 class Notification(Base):

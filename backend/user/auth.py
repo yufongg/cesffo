@@ -6,17 +6,21 @@ import string
 from argon2 import PasswordHasher, Type, exceptions
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
+from fastapi.concurrency import run_in_threadpool
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, Tuple
 from uuid import UUID
 
-from core import account_lockout
+from core.account_lockout import LOCKOUT_TIMER
+from core.securedCookie import ACCESS_TOKEN_EXPIRE_MINUTES
 
 from common.encryption import blind_index
+from common.pwned import is_pwned
 from db.db import get_db_session
-from model.models import User
+from model.models import User, PendingRegistration, LoginChallenge, PasswordChangeChallenge
 
 # Username policy mirrors the registration schema (router-level Field bounds).
 USERNAME_MIN_LENGTH = 3
@@ -30,15 +34,33 @@ if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(64)
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+#$ Token / lockout lifetimes (minutes, except the attempt count). Tuned to the security NFRs.
+#$ ACCESS_TOKEN_EXPIRE_MINUTES is imported from core.securedCookie (single source of truth).
+RESET_TOKEN_EXPIRE_MINUTES = 10     # forced-reset token issued at login
+RESET_LINK_EXPIRE_MINUTES = 30      # self-service "forgot password" link
+MAX_AUTH_ATTEMPTS = 5               # failed logins before the account locks
 
-RESET_TOKEN_EXPIRE_MINUTES = 10
-# A self-service email link is clicked out-of-band (the user must switch to their
-# mailbox), so it gets a slightly longer — but still short — window than the
-# in-session forced-reset token above.
-RESET_LINK_EXPIRE_MINUTES = 30
-MAX_AUTH_ATTEMPTS = 5
+#$ Email-verification (registration 2FA) settings.
+VERIFICATION_CODE_EXPIRE_MINUTES = 10       # how long an emailed 6-digit code stays valid
+MAX_VERIFICATION_ATTEMPTS = 5               # wrong-code guesses before the pending signup is burned
+VERIFICATION_RESEND_COOLDOWN_SECONDS = 60   # min gap between code emails (anti inbox-bombing)
+# Hard ceiling on code emails per pending signup / login challenge (initial counts
+# as 1). A fresh signup/login is required once hit — bounds inbox-bombing on top of
+# the per-request cooldown.
+MAX_CODE_SENDS = 5
+
+#$ Login two-factor (login 2FA) settings. Mirrors the registration code above:
+#$ same lifetime, guess cap and resend cooldown, applied to the login challenge.
+LOGIN_OTP_EXPIRE_MINUTES = VERIFICATION_CODE_EXPIRE_MINUTES
+MAX_LOGIN_OTP_ATTEMPTS = MAX_VERIFICATION_ATTEMPTS
+LOGIN_OTP_RESEND_COOLDOWN_SECONDS = VERIFICATION_RESEND_COOLDOWN_SECONDS
+
+#$ Logged-in password-change OTP settings. Keep these aligned with the other
+#$ emailed 6-digit code flows so the product has one predictable OTP policy.
+PASSWORD_CHANGE_OTP_EXPIRE_MINUTES = VERIFICATION_CODE_EXPIRE_MINUTES
+MAX_PASSWORD_CHANGE_OTP_ATTEMPTS = MAX_VERIFICATION_ATTEMPTS
+PASSWORD_CHANGE_OTP_RESEND_COOLDOWN_SECONDS = VERIFICATION_RESEND_COOLDOWN_SECONDS
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
@@ -51,16 +73,13 @@ ROLE_ADMIN = "admin"
 ALLOWED_ROLES = frozenset({ROLE_STUDENT, ROLE_INSTRUCTOR, ROLE_ADMIN})
 
 # --- Password policy (SR-01) ---
-# SR-01 mandates >= 10 chars AND at least one uppercase, one lowercase, one digit
-# and one special character. We ALSO keep the known-bad blocklist and the
-# username/email-substring checks below as defence-in-depth (a strict superset of
-# SR-01).
-MIN_PASSWORD_LENGTH = 10
+# Aligned with NIST SP 800-63B
+MIN_PASSWORD_LENGTH = 8
 # Cap at 128 to bound Argon2 work (DoS guard) while still permitting passphrases.
 # This MUST match the router schema's max_length.
 MAX_PASSWORD_LENGTH = 128
-# Characters accepted as "special" for the SR-01 complexity check. Kept broad so
-# password managers and generated temp passwords can satisfy the rule.
+
+# Character pool used only by generate_temp_password() 
 SPECIAL_CHARS = "!@#$%^&*()-_=+[]{};:,.<>?/|~`\"'\\"
 
 # Single shared hasher instance (thread-safe). Parameters are pinned explicitly to
@@ -71,7 +90,7 @@ _ph = PasswordHasher(
     memory_cost=65536,    # 64 MiB expressed in KiB (SR-02: >= 64MB)
     parallelism=4,        # lanes (SR-02: 4)
     hash_len=32,
-    salt_len=16,
+    salt_len=16,          # Randomly generated salt
     type=Type.ID,         # Argon2id (SR-02)
 )
 
@@ -83,19 +102,38 @@ _DUMMY_HASH = _ph.hash("timing-equalizer-not-a-real-password")
 AUTH_SUCCESS = "Authentication Success"
 AUTH_FAILURE = "Authentication Failed"
 
-# A tiny illustrative blocklist. In production, check against the Have I Been
-# Pwned k-anonymity API (send only the first 5 SHA-1 chars) or a local copy.
-COMMON_PASSWORDS = {
-    "password", "password1", "password123", "123456", "12345678",
-    "qwerty", "letmein", "admin", "welcome", "iloveyou", "abc123",
-    "changeme", "passw0rd",
-}
 
 
 class ExistingUserError(Exception):
     def __init__(self, field_taken):
         super().__init__()
         self.field_taken = field_taken
+
+class InvalidVerificationError(Exception):
+    """Raised for any bad/expired/exhausted/unknown email-verification code. A
+    single generic failure so the verify endpoint can't be used to probe which
+    signups are currently pending."""
+    pass
+
+class LoginOtpRequiredError(Exception):
+    """Raised by login() once the password is verified: authentication is not yet
+    complete because a second factor (emailed 6-digit code) is owed. Carries the
+    details the caller needs to email that code out of band; NO session token is
+    issued until the code is confirmed via verify_login_otp()."""
+    def __init__(self, email: str, username: str, code: str):
+        super().__init__()
+        self.email = email
+        self.username = username
+        self.code = code
+
+class InvalidLoginOtpError(Exception):
+    """Raised for any bad/expired/exhausted/unknown login OTP. A single generic
+    failure so the verify endpoint can't be used to probe accounts."""
+    pass
+
+class InvalidPasswordChangeOtpError(Exception):
+    """Raised for any bad/expired/exhausted/unknown password-change OTP."""
+    pass
 
 class UserNotFoundError(Exception):
     pass
@@ -144,11 +182,12 @@ def hash_password(password: str) -> str:
 
 
 def generate_temp_password(length: int = 16) -> str:
-    """Generate a cryptographically strong temporary password that satisfies the
-    SR-01 policy (length + all four character classes).
+    """Generate a cryptographically strong temporary password.
 
-    Uses secrets (CSPRNG) and guarantees at least one uppercase, lowercase, digit
-    and special character so the value always passes validate_password_strength().
+    Uses secrets (CSPRNG) and mixes all four character classes. The NIST-style
+    policy (SR-01) no longer requires composition, but a long random mixed value
+    trivially satisfies the length rule and will never appear in the HIBP breach
+    corpus, so it always passes validate_password_strength().
     """
     length = max(length, MIN_PASSWORD_LENGTH)
     pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS)
@@ -160,35 +199,30 @@ def generate_temp_password(length: int = 16) -> str:
     return "".join(chars)
 
 
-def parse_user_id(raw: str) -> UUID:
-    """Parse a user id (hex or canonical form) into a UUID, or raise ValueError."""
-    return UUID(raw)
-
-
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-
-    # SR-01: enforce length and character-class composition, then apply the
-    # defence-in-depth blocklist / identity-substring checks.
+    #! SR-01 (NIST SP 800-63B): length bounds only — no character-class/composition
+    #! rules (NIST explicitly says not to impose them). Then the NIST-endorsed
+    #! "must not contain your own username/email" checks and the HIBP
+    #! breached-password screen. May block on network I/O (HIBP): async callers
+    #! must invoke this via run_in_threadpool, never directly.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Max allowed password length is {MAX_PASSWORD_LENGTH} characters long")
-    if not any(c.isupper() for c in password):
-        raise PasswordPolicyError("Password must include at least one uppercase letter")
-    if not any(c.islower() for c in password):
-        raise PasswordPolicyError("Password must include at least one lowercase letter")
-    if not any(c.isdigit() for c in password):
-        raise PasswordPolicyError("Password must include at least one number")
-    if not any(c in SPECIAL_CHARS for c in password):
-        raise PasswordPolicyError("Password must include at least one special character")
-    if password.lower() in COMMON_PASSWORDS:
-        raise PasswordPolicyError("Password is too common; please choose a less predictable one")
-    
+
     lowered = password.lower()
     if username and username.lower() in lowered:
         raise PasswordPolicyError("Password must not contain your username")
     if email and email.split("@")[0].lower() in lowered:
         raise PasswordPolicyError("Password must not contain your email")
+
+   
+    #! reject passwords known to appear in real breaches via the HIBP k-anonymity API. Runs last so
+    #! it only fires for passwords that already pass every rule
+    if is_pwned(password):
+        raise PasswordPolicyError(
+            "This password has appeared in a known data breach; please choose a different one"
+        )
 
 
 def create_access_token(user_id: str, role: str) -> str:
@@ -230,51 +264,218 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
 
-async def register(email: EmailStr, username: str, password: str, password_confirm: str) -> Tuple[str, UUID, str]:
+def generate_verification_code() -> str:
+    #* 6-digit numeric code from a CSPRNG (secrets), zero-padded so "000123" is valid.
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _aware_datetime(value):
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _within_resend_cooldown(last_sent_at, now: datetime, cooldown_seconds: int) -> bool:
+    return (now - _aware_datetime(last_sent_at)).total_seconds() < cooldown_seconds
+
+
+def _refresh_code_challenge(challenge, code: str, now: datetime, expires_minutes: int) -> None:
+    challenge.code_hash = hash_password(code)
+    challenge.code_expires = now + timedelta(minutes=expires_minutes)
+    challenge.attempts = 0
+    challenge.last_sent_at = now
+
+
+async def request_registration(
+    email: EmailStr, username: str, password: str, password_confirm: str
+) -> Tuple[str, str, str]:
+    """Step 1 of signup: validate the details and stage a pending registration
+    guarded by an emailed 6-digit code. NO User row is created here — the account
+    only comes into existence once the code is confirmed (see verify_registration).
+
+    Returns ``(email, username, code)`` so the caller can send the code out of
+    band; the code is NEVER returned to the client. Raises PasswordsMismatchError,
+    PasswordPolicyError, or ExistingUserError (email/username already taken)."""
     if password != password_confirm:
         raise PasswordsMismatchError()
 
     email = email.strip().lower()
     username = username.strip()
 
-    #! Enforce password policy before touching the DB or hashing
-    validate_password_strength(password, username=username, email=email)
+    #! Enforce the password policy before touching the DB or hashing (cheap reject first).
+    # Threadpool: the HIBP breach check inside does blocking network I/O and
+    # must never stall the event loop.
+    await run_in_threadpool(validate_password_strength, password, username=username, email=email)
+
+    email_bidx = blind_index(email)
+    code = generate_verification_code()
 
     with get_db_session() as session:
-        # email is encrypted at rest, so search by its blind index, not the value.
-        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
-            raise ExistingUserError("email")
+        #* Opportunistic cleanup: drop expired pending signups so abandoned ones
+        #* don't permanently squat on a username/email.
+        session.query(PendingRegistration).filter(
+            PendingRegistration.code_expires < datetime.now(timezone.utc)
+        ).delete(synchronize_session=False)
 
+        #? Uniqueness against real accounts: email by blind index (it's encrypted), username by value.
+        if session.scalar(select(User).where(User.email_bidx == email_bidx)):
+            raise ExistingUserError("email")
         if session.scalar(select(User).where(User.username == username)):
             raise ExistingUserError("username")
+        #? A different in-flight signup already holding this username blocks it too.
+        if session.scalar(
+            select(PendingRegistration).where(
+                PendingRegistration.username == username,
+                PendingRegistration.email_bidx != email_bidx,
+            )
+        ):
+            raise ExistingUserError("username")
 
-        hashed_password = hash_password(password)
+        #* Overwrite any prior pending signup for THIS email (re-register / issue a fresh code).
+        existing = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+        if existing:
+            session.delete(existing)
+            session.flush()
+
+        now = datetime.now(timezone.utc)
+        pending = PendingRegistration(
+            email_bidx=email_bidx,
+            username=username,
+            password_hash=hash_password(password),
+            code_hash=hash_password(code),   #! store only the Argon2 hash of the code, never the code itself
+            code_expires=now + timedelta(minutes=VERIFICATION_CODE_EXPIRE_MINUTES),
+            attempts=0,
+            last_sent_at=now,
+        )
+        session.add(pending)
+        try:
+            session.commit()
+        except IntegrityError:
+            #! Lost a race on the unique(email_bidx)/unique(username) constraint.
+            raise ExistingUserError("username")
+
+    return email, username, code
+
+
+async def verify_registration(email: EmailStr, code: str) -> Tuple[str, UUID, str]:
+    """Step 2 of signup: confirm the emailed code and, only if it matches, create
+    the real User (auto-logging them in with a session token). The code is
+    single-use, time-limited, and capped at MAX_VERIFICATION_ATTEMPTS guesses.
+
+    Returns ``(access_token, user_id, role)`` on success. Raises
+    InvalidVerificationError for any bad/expired/exhausted/unknown code (one
+    generic failure — no enumeration oracle), or ExistingUserError if the
+    email/username got taken between step 1 and now."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+
+    with get_db_session() as session:
+        pending = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+
+        #! Unknown signup: still burn the same Argon2 time as a real check so "no pending" and "wrong code" are indistinguishable by timing.
+        if pending is None:
+            try:
+                #! Dummy verify function to prevent timing attacks
+                _ph.verify(_DUMMY_HASH, code)
+            except Exception:  # nosec B110
+                pass
+            raise InvalidVerificationError()
+
+        now = datetime.now(timezone.utc)
+        expires = _aware_datetime(pending.code_expires)
+
+        #! Expired or out of guesses: burn the pending signup — a fresh code must be requested. Fail generically either way.
+        if now > expires or pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
+            session.delete(pending)
+            session.commit()
+            raise InvalidVerificationError()
 
         try:
-            user = User(
-                email=email,
-                email_bidx=blind_index(email),
-                username=username,
-                password=hashed_password,
-                role=ROLE_STUDENT,  # self-service signup can NEVER pick its own role (privilege-escalation guard)
-            )
-            session.add(user)
+            _ph.verify(pending.code_hash, code)
+        except exceptions.VerifyMismatchError:
+            pending.attempts += 1
+            if pending.attempts >= MAX_VERIFICATION_ATTEMPTS:
+                #^ If too many attempts, delete the code
+                session.delete(pending) 
+            session.commit()
+            raise InvalidVerificationError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal verification error")
+
+        #^ Code is correct. Re-check uniqueness
+        if session.scalar(select(User).where(User.email_bidx == email_bidx)):
+            session.delete(pending)
+            session.commit()
+            raise ExistingUserError("email")
+        if session.scalar(select(User).where(User.username == pending.username)):
+            session.delete(pending)
+            session.commit()
+            raise ExistingUserError("username")
+
+        #^ Create new user. To be stored in DB
+        user = User(
+            email=email,                     
+            email_bidx=email_bidx,
+            username=pending.username,
+            password=pending.password_hash,
+            role=ROLE_STUDENT,
+        )
+        session.add(user)
+        session.delete(pending)
+        try:
             session.commit()
             session.refresh(user)
+        except IntegrityError:
+            raise ExistingUserError("username")
 
-            token = create_access_token(user.user_id.hex, user.role)
-            return token, user.user_id, user.role
-        except Exception:
-            raise DatabaseError()
+        token = create_access_token(user.user_id.hex, user.role)
+        return token, user.user_id, user.role
+
+
+async def resend_registration_code(email: EmailStr) -> Optional[Tuple[str, str, str]]:
+    """Re-issue a fresh code for an in-flight signup, subject to a cooldown that
+    stops the endpoint being used to flood someone's inbox.
+
+    Returns ``(email, username, code)`` when a new code was issued, or ``None``
+    (no pending signup, or still within the cooldown) — the caller returns an
+    identical generic response either way so nothing leaks about pending signups."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        pending = session.scalar(
+            select(PendingRegistration).where(PendingRegistration.email_bidx == email_bidx)
+        )
+        if pending is None:
+            return None
+
+        if (pending.sends or 0) >= MAX_CODE_SENDS:
+            return None
+
+        if _within_resend_cooldown(pending.last_sent_at, now, VERIFICATION_RESEND_COOLDOWN_SECONDS):
+            return None                          #! within cooldown — don't send another email
+
+        code = generate_verification_code()
+        _refresh_code_challenge(pending, code, now, VERIFICATION_CODE_EXPIRE_MINUTES)
+        pending.sends = (pending.sends or 0) + 1
+        username = pending.username
+        session.commit()
+
+    return email, username, code
 
 
 async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
     email = email.strip().lower()
     with get_db_session() as session:
+        #? email is encrypted at rest, so we look it up by its deterministic blind index.
         existing_user = session.scalar(select(User).where(User.email_bidx == blind_index(email)))
 
-        # Argon2 verify against a dummy hash so the response time matches the
-        # "wrong password" path, then fail with the same generic error.
+        #! No such user: still run a real Argon2 verify against a throwaway hash so this
+        #! path takes the same time as a wrong-password attempt (closes the timing oracle
+        #! an attacker would use to enumerate which emails exist), then fail generically.
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
@@ -282,43 +483,174 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
                 pass
             raise UserNotFoundError()
 
-        # Banned or soft-deleted accounts must never authenticate.
+        #! Banned or soft-deleted accounts must never authenticate.
         if existing_user.is_deleted or not existing_user.is_active:
             raise InactiveAccountError()
 
+        #! Lockout handled inline on THIS session so the read and write of
+        #! auth_attempts/lockout_timestamp stay in one transaction (no second-session race).
         if existing_user.auth_attempts >= MAX_AUTH_ATTEMPTS:
-            if account_lockout(existing_user.username):
-                raise AccountLockedError()
+            now = datetime.now(timezone.utc)
+            lock_start = existing_user.lockout_timestamp
+            if lock_start is not None and lock_start.tzinfo is None:
+                lock_start = lock_start.replace(tzinfo=timezone.utc)
 
+            if lock_start is None:
+                #! Commit the stamp before raising — the raise rolls back the session,
+                #! so it must persist first or the lockout window never starts.
+                existing_user.lockout_timestamp = now
+                session.commit()
+                raise AccountLockedError()
+            if now < lock_start + timedelta(seconds=LOCKOUT_TIMER):
+                raise AccountLockedError()
+            # Window elapsed: clear it and let this attempt be evaluated normally below.
+            existing_user.lockout_timestamp = None
+            existing_user.auth_attempts = 0
 
         try:
             _ph.verify(existing_user.password, password)
         except exceptions.VerifyMismatchError:
+            #! Wrong password: bump the failed-attempt counter (feeds the lockout) and fail generically.
             existing_user.auth_attempts += 1
             session.commit()
             raise PasswordsMismatchError()
         except (exceptions.InvalidHashError, exceptions.VerificationError):
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
-        # Successful login: reset the failed-attempt counter.
+        #* Correct password: clear the failed-attempt counter.
         existing_user.auth_attempts = 0
 
-        # Transparently upgrade the stored hash if Argon2 parameters changed.
+        #* If our Argon2 cost parameters have since changed, transparently re-hash on this login.
         if _ph.check_needs_rehash(existing_user.password):
             existing_user.password = _ph.hash(password)
 
-        # Capture what we need before the session commits and closes.
+        #^ Snapshot what we need now, before the context manager commits and closes the session.
         must_reset = existing_user.force_password_reset
         uid = existing_user.user_id
-        role = existing_user.role
+        username = existing_user.username
         pwd_hash = existing_user.password
 
 
     if must_reset:
+        #! A forced reset takes precedence over the OTP: the user must set a new
+        #! password (via the reset token) before any session — no second factor here.
         raise PasswordResetRequiredError(create_reset_token(uid.hex, pwd_hash))
 
-    token = create_access_token(uid.hex, role)
-    return token, uid, role
+
+    code = _issue_login_challenge(uid)
+    raise LoginOtpRequiredError(email=email, username=username, code=code)
+
+
+def _issue_login_challenge(user_id: UUID) -> str:
+    """Create (or replace) the pending login challenge for a user and return a
+    fresh 6-digit code. Only the Argon2 hash of the code is stored. One challenge
+    per user: a new login attempt overwrites any previous outstanding one."""
+    code = generate_verification_code()
+    now = datetime.now(timezone.utc)
+    with get_db_session() as session:
+        existing = session.scalar(
+            select(LoginChallenge).where(LoginChallenge.user_id == user_id)
+        )
+        if existing:
+            session.delete(existing)
+            session.flush()
+        session.add(LoginChallenge(
+            user_id=user_id,
+            code_hash=hash_password(code),
+            code_expires=now + timedelta(minutes=LOGIN_OTP_EXPIRE_MINUTES),
+            attempts=0,
+            last_sent_at=now,
+        ))
+    return code
+
+
+async def verify_login_otp(email: EmailStr, code: str) -> Tuple[str, UUID, str]:
+    """Second step of login: confirm the emailed code and, only if it matches,
+    issue the real session token. The code is single-use, time-limited, and capped
+    at MAX_LOGIN_OTP_ATTEMPTS guesses.
+
+    Returns ``(access_token, user_id, role)`` on success. Raises
+    InvalidLoginOtpError for any bad/expired/exhausted/unknown code (one generic
+    failure — no enumeration oracle)."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == email_bidx))
+        challenge = (
+            session.scalar(select(LoginChallenge).where(LoginChallenge.user_id == user.user_id))
+            if user else None
+        )
+
+        #! No such user, no outstanding challenge, or the account is no longer
+        #! eligible: burn the same Argon2 time as a real check so all these cases
+        #! are indistinguishable by timing, then fail generically.
+        if user is None or challenge is None or user.is_deleted or not user.is_active:
+            try:
+                _ph.verify(_DUMMY_HASH, code)
+            except Exception:  # nosec B110
+                pass
+            raise InvalidLoginOtpError()
+
+        now = datetime.now(timezone.utc)
+        expires = _aware_datetime(challenge.code_expires)
+
+        #! Expired or out of guesses: burn the challenge — a fresh login is needed.
+        if now > expires or challenge.attempts >= MAX_LOGIN_OTP_ATTEMPTS:
+            session.delete(challenge)
+            raise InvalidLoginOtpError()
+
+        try:
+            _ph.verify(challenge.code_hash, code)
+        except exceptions.VerifyMismatchError:
+            challenge.attempts += 1
+            if challenge.attempts >= MAX_LOGIN_OTP_ATTEMPTS:
+                session.delete(challenge)        #! last allowed guess used up — burn it
+            raise InvalidLoginOtpError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        #* Code is correct: consume the challenge and issue a real session.
+        uid = user.user_id
+        role = user.role
+        session.delete(challenge)
+
+    return create_access_token(uid.hex, role), uid, role
+
+
+async def resend_login_otp(email: EmailStr) -> Optional[Tuple[str, str, str]]:
+    """Re-issue a fresh login code for an in-flight challenge, subject to a
+    cooldown that stops the endpoint being used to flood someone's inbox.
+
+    Returns ``(email, username, code)`` when a new code was issued, or ``None``
+    (no outstanding challenge, ineligible account, or still within the cooldown) —
+    the caller returns an identical generic response either way."""
+    email = email.strip().lower()
+    email_bidx = blind_index(email)
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.email_bidx == email_bidx))
+        if not user or user.is_deleted or not user.is_active:
+            return None
+        challenge = session.scalar(
+            select(LoginChallenge).where(LoginChallenge.user_id == user.user_id)
+        )
+        if challenge is None:
+            return None
+
+        if (challenge.sends or 0) >= MAX_CODE_SENDS:
+            return None
+
+        if _within_resend_cooldown(challenge.last_sent_at, now, LOGIN_OTP_RESEND_COOLDOWN_SECONDS):
+            return None                          #! within cooldown — don't send another email
+
+        code = generate_verification_code()
+        _refresh_code_challenge(challenge, code, now, LOGIN_OTP_EXPIRE_MINUTES)
+        challenge.sends = (challenge.sends or 0) + 1
+        username = user.username
+
+    return email, username, code
 
 
 async def update_profile(
@@ -401,13 +733,163 @@ async def change_password_authenticated(
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
         # Same policy as registration (length, blocklist, not username/email).
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
 
         # Forbid a no-op "change" back to the same password.
         if current_password == new_password:
             raise PasswordPolicyError("New password must be different from the current one")
 
         user.password = hash_password(new_password)
+
+
+async def request_password_change_otp(
+    user_id: UUID, current_password: str, new_password: str, new_password_confirm: str
+) -> Tuple[str, str, str]:
+    """Preflight a logged-in password change and email a confirmation code.
+
+    The password is not changed here. This validates the current password and
+    proposed new password first, then stages a short-lived OTP challenge.
+    """
+    if new_password != new_password_confirm:
+        raise PasswordsMismatchError()
+
+    code = generate_verification_code()
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        try:
+            _ph.verify(user.password, current_password)
+        except exceptions.VerifyMismatchError:
+            raise InvalidCurrentPasswordError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
+        if current_password == new_password:
+            raise PasswordPolicyError("New password must be different from the current one")
+
+        existing = session.scalar(
+            select(PasswordChangeChallenge).where(PasswordChangeChallenge.user_id == user_id)
+        )
+        if existing:
+            session.delete(existing)
+            session.flush()
+
+        session.add(PasswordChangeChallenge(
+            user_id=user_id,
+            code_hash=hash_password(code),
+            code_expires=now + timedelta(minutes=PASSWORD_CHANGE_OTP_EXPIRE_MINUTES),
+            attempts=0,
+            last_sent_at=now,
+            password_fingerprint=reset_token_fingerprint(user.password),
+        ))
+        return user.email, user.username, code
+
+
+async def verify_password_change_otp(
+    user_id: UUID,
+    current_password: str,
+    new_password: str,
+    new_password_confirm: str,
+    code: str,
+) -> None:
+    """Confirm the emailed code and apply a logged-in password change."""
+    if new_password != new_password_confirm:
+        raise PasswordsMismatchError()
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user:
+            raise UserNotFoundError()
+
+        challenge = session.scalar(
+            select(PasswordChangeChallenge).where(PasswordChangeChallenge.user_id == user_id)
+        )
+        if challenge is None:
+            try:
+                _ph.verify(_DUMMY_HASH, code)
+            except Exception:  # nosec B110
+                pass
+            raise InvalidPasswordChangeOtpError()
+
+        try:
+            _ph.verify(user.password, current_password)
+        except exceptions.VerifyMismatchError:
+            raise InvalidCurrentPasswordError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
+        if current_password == new_password:
+            raise PasswordPolicyError("New password must be different from the current one")
+
+        now = datetime.now(timezone.utc)
+        expires = _aware_datetime(challenge.code_expires)
+
+        stale = challenge.password_fingerprint != reset_token_fingerprint(user.password)
+        exhausted = challenge.attempts >= MAX_PASSWORD_CHANGE_OTP_ATTEMPTS
+        if now > expires or exhausted or stale:
+            session.delete(challenge)
+            session.commit()
+            raise InvalidPasswordChangeOtpError()
+
+        try:
+            _ph.verify(challenge.code_hash, code)
+        except exceptions.VerifyMismatchError:
+            challenge.attempts += 1
+            if challenge.attempts >= MAX_PASSWORD_CHANGE_OTP_ATTEMPTS:
+                session.delete(challenge)
+            session.commit()
+            raise InvalidPasswordChangeOtpError()
+        except (exceptions.InvalidHashError, exceptions.VerificationError):
+            raise HTTPException(status_code=500, detail="Internal authentication error")
+
+        user.password = hash_password(new_password)
+        session.delete(challenge)
+
+
+async def resend_password_change_otp(user_id: UUID) -> Optional[Tuple[str, str, str]]:
+    """Re-issue a fresh password-change code for an active challenge."""
+    now = datetime.now(timezone.utc)
+
+    with get_db_session() as session:
+        user = session.scalar(select(User).where(User.user_id == user_id))
+        if not user or user.is_deleted or not user.is_active:
+            return None
+
+        challenge = session.scalar(
+            select(PasswordChangeChallenge).where(PasswordChangeChallenge.user_id == user_id)
+        )
+        if challenge is None:
+            return None
+        if (challenge.sends or 0) >= MAX_CODE_SENDS:
+            return None
+
+        expires = _aware_datetime(challenge.code_expires)
+        stale = challenge.password_fingerprint != reset_token_fingerprint(user.password)
+        if now > expires or stale or challenge.attempts >= MAX_PASSWORD_CHANGE_OTP_ATTEMPTS:
+            session.delete(challenge)
+            return None
+
+        if _within_resend_cooldown(
+            challenge.last_sent_at, now, PASSWORD_CHANGE_OTP_RESEND_COOLDOWN_SECONDS
+        ):
+            return None
+
+        code = generate_verification_code()
+        _refresh_code_challenge(challenge, code, now, PASSWORD_CHANGE_OTP_EXPIRE_MINUTES)
+        challenge.sends = (challenge.sends or 0) + 1
+        return user.email, user.username, code
 
 
 async def request_password_reset(email: EmailStr) -> Optional[Tuple[UUID, str, str, str]]:
@@ -459,7 +941,9 @@ async def change_password(
             raise ResetTokenInvalidError()
 
         # Same policy as registration (length, blocklist, not username/email).
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
 
         # Don't let them "rotate" straight back to the temporary password.
         try:

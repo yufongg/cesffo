@@ -110,8 +110,7 @@ export default function ChangePassword() {
                   autoFocus
                 />
                 <small className="field__hint">
-                  At least 10 characters with an uppercase, lowercase, number and
-                  special character. Avoid common passwords or your own name/email.
+                  At least 8 characters. Avoid common passwords or your own name/email.
                 </small>
               </div>
 

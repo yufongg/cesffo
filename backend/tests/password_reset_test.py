@@ -1,9 +1,8 @@
-"""Tests for the self-service password-reset (forgot password) flow and the
+"""
+
+Tests for the self-service password-reset (forgot password) flow and the
 single-use binding on reset tokens.
 
-Style mirrors basic_auth_test.py: the DB session is mocked for the underlying
-logic functions, and the audit/email side-effects are patched at the router
-boundary so the endpoint tests need no real database or SMTP server.
 """
 
 import pytest

@@ -1,0 +1,34 @@
+name: Security Scan (OWASP Dependency-Check)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    name: Scan Third-Party Dependencies
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/DependencyCheck_Action@main
+        with:
+          project: 'Cesffo'
+          path: '.'
+          format: 'HTML' # Generates an interactive report artifact
+          out: 'reports'
+          # Passing an NVD API key prevents rate-limiting throttles
+          args: >
+            --failOnCVSS 7
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: reports

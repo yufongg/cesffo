@@ -204,8 +204,6 @@ export default function Forum() {
       };
 
       socket.onmessage = async (event) => {
-        console.log('Forum WS message:', event.data);
-
         try {
           const message = JSON.parse(event.data);
           const current = selectedThreadIdRef.current;

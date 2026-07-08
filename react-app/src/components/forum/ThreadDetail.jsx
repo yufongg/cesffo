@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatDate } from '../../utils/forumText';
+import { fileUrl } from '../../api/client';
 import SafeHtml from '../Security/SafeHtml';
 import ReplyComposer from './ReplyComposer';
 
@@ -15,8 +16,8 @@ function PostAttachments({ attachments, canManage, onDeleteAttachment }) {
     <div className="forum-attachments">
       {attachments.map((attachment) => (
         <figure className="forum-attachment" key={attachment.attachment_id}>
-          <a href={attachment.file_url} target="_blank" rel="noreferrer">
-            <img src={attachment.file_url} alt={attachment.file_name} loading="lazy" />
+          <a href={fileUrl(attachment.file_url)} target="_blank" rel="noreferrer">
+            <img src={fileUrl(attachment.file_url)} alt={attachment.file_name} loading="lazy" />
           </a>
           {canManage && (
             <button

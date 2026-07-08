@@ -35,11 +35,71 @@ jobs:
     - name: Run Bandit Security Scanner
       run: bandit -c ./backend/bandit.yaml -r ./backend -x ./backend/tests
 
+  # Audit third-party dependencies against known-vulnerability databases
+  dependency-check:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Audit Python Dependencies (pip-audit)
+      # PYSEC-2026-1325 (CVE-2024-23342): Minerva timing attack in `ecdsa`, a
+      # transitive dependency of python-jose. Not exploitable here — JWTs are
+      # signed with HS256 (HMAC) and no ECDSA signing/ECDH path is ever
+      # exercised. Upstream considers side channels out of scope; no fixed
+      # version exists to upgrade to, so it is a documented accepted risk.
+      run: |
+        pip install pip-audit
+        pip-audit -r ./backend/requirements.txt --ignore-vuln PYSEC-2026-1325
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: react-app/package-lock.json
+
+    - name: Audit npm Dependencies (npm audit)
+      working-directory: ./react-app
+      run: |
+        npm ci --ignore-scripts
+        npm audit --omit=dev --audit-level=high
+
+  # Frontend unit tests run on the runner (the production frontend image is a
+  # static nginx server with no node runtime, so tests can't run inside it)
+  frontend-tests:
+    name: Frontend Test Suite
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: react-app/package-lock.json
+
+    - name: Run Jest Suite
+      working-directory: ./react-app
+      run: |
+        npm ci --ignore-scripts
+        npm run test:ci
+
   # Integration tests for main and dev scope
   integration-tests:
     name: Dockerized Integration Testing
     runs-on: ubuntu-latest
-    needs: static-analysis
+    needs: [static-analysis, dependency-check]
     # Logical Gate: Skip this slow job on active feature branches unless a PR is opened
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.event_name == 'pull_request'
     
@@ -54,6 +114,10 @@ jobs:
         echo "POSTGRES_DB=finwise_test_db" >> .env
         echo "POSTGRES_SECRET=password123" >> .env 
         echo "FLASK_SECRET_KEY=test_secret_key_999" >> .env
+        echo "STRIPE_MODE=test" >> .env 
+        echo "STRIPE_PUBLIC=pk_test_51TgFVt8OYVYuEJHA9XKhsQ5xfau9w4jaYIAaXr9xID1GUti2BqO0s1b3QuVrnW1y7Ghg3Jal9nEHAnIJH3o2C2ZF00evCctGVW" >> .env 
+        echo "STRIPE_SECRET=sk_test_51TgFVt8OYVYuEJHAD6UaYGnPRwyFyrUlRMwvM7AUJkYKdgqRbwFaKWgIgdaou9THu6ylFmYgD2u9ZMJDSvQk4bOX00eUOWygio" >> .env 
+        echo "STRIPE_WEBHOOK_SECRET=whsec_VbF5wFjWFVA064TGrThrDXKhsQ5xfdZ" >> .env 
 
     - name: Spin up docker instances
       run: docker compose -f docker-compose.yml up --build -d
@@ -79,9 +143,6 @@ jobs:
     - name: Execute Backend Pytest Suite
       run: docker compose -f docker-compose.yml exec -T backend pytest ./tests
 
-    - name: Execute Frontend Vitest Suite
-      run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
-
     - name: Dump Docker Logs on Failure
       if: failure()
       run: |
@@ -96,7 +157,7 @@ jobs:
   production-deployment:
     name: Deploy Release to Production Server
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: [integration-tests, frontend-tests]
     # Strict logical gate: Only runs on a direct push to the deploy branch
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 

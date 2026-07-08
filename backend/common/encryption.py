@@ -1,25 +1,11 @@
-"""Application-layer encryption for PII at rest.
+"""
+PII encryption helpers.
 
-A single high-entropy ``MASTER_KEY`` is supplied via the environment (never
-baked into the Docker image). From it we HKDF-derive purpose-separated subkeys
-so the same master secret can safely back several independent operations:
-
-  * a data-encryption key (DEK) for AES-256-GCM field encryption, and
-  * a blind-index key for deterministic HMAC lookups of searchable fields.
-
-Public API
-----------
-``encrypt(plaintext)``  -> token ``str``  (randomized + authenticated)
-``decrypt(token)``      -> plaintext ``str``
-``blind_index(value)``  -> hex ``str``    (deterministic; for equality lookups)
-
-Why a blind index? AES-256-GCM uses a fresh random nonce per call, so the same
-plaintext encrypts to a *different* token every time. That is exactly what we
-want for confidentiality, but it makes the ciphertext column useless for
-``WHERE col = ?`` lookups or ``UNIQUE`` constraints. For a field that still
-needs equality search / uniqueness (e.g. email used for login), store the
-randomized ciphertext for retrieval AND a deterministic ``blind_index()`` of the
-normalized value in a separate indexed column to search on.
+One master key (from .env) is run through HKDF to derive separate purpose-bound
+keys: a data key for AES-256-GCM encryption and an index key for blind indexing.
+A fresh random nonce per encryption means the same plaintext never produces the
+same ciphertext twice. GCM gives us Confidentiality and Authenticity (the C and
+A of CIA) — tampered ciphertext fails to decrypt.
 """
 
 import base64
@@ -97,6 +83,7 @@ def encrypt(plaintext):
     if not isinstance(plaintext, str):
         raise TypeError("encrypt expects str or None")
 
+    #! Fresh random nonce every call — reusing a nonce with the same key breaks GCM entirely.
     nonce = secrets.token_bytes(_NONCE_BYTES)
     ciphertext = AESGCM(_DATA_KEY).encrypt(nonce, plaintext.encode("utf-8"), None)
     token = _VERSION + nonce + ciphertext

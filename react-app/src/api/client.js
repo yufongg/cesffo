@@ -93,3 +93,16 @@ export function wsUrl(path) {
 
   return `${proto}://${window.location.host}${path}`;
 }
+
+// Build an absolute URL to a backend-served resource 
+export function fileUrl(path) {
+  if (!path) return path;
+  // Already absolute (defensive — backend currently returns a relative path).
+  if (/^https?:\/\//i.test(path)) return path;
+
+  const proto = window.location.protocol === "https:" ? "https" : "http";
+  if (process.env.NODE_ENV === "development") {
+    return `${proto}://${window.location.hostname}:5000${path}`;
+  }
+  return `${proto}://${window.location.host}${path}`;
+}
