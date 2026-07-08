@@ -470,7 +470,7 @@ async def enroll_course(course_id: str, request: Request, current_user: dict = D
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
         if course.price_cents != 0:
-            raise HTTPException(status_code=403, detail="You need to purchase the couse to be enrolled. Add it to cart instead.")
+            raise HTTPException(status_code=402, detail="You need to purchase the course to be enrolled. Add it to cart instead.")
         existing = session.scalar(
             select(CourseEnrollment).where(
                 CourseEnrollment.course_id == cid,

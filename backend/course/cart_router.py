@@ -252,15 +252,6 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
                 session.add(new_pending_enrollment)
                 pending_enrollments.append(new_pending_enrollment)
                 await_payment.append(course)  # Store course object, not just ID
-        
-
-            session.add(CourseEnrollment(
-                course_id=course.course_id,
-                student_id=user_id,
-                progress=0.0,
-                dropped=False,
-            ))
-            enrolled.append(course.course_id.hex)
 
         
         # Clear cart and flush before redirect
