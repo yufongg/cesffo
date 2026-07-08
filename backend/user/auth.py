@@ -24,13 +24,12 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-
 RESET_TOKEN_EXPIRE_MINUTES = 10
 MAX_AUTH_ATTEMPTS = 5
 
 # Token scopes keep a reset token from ever being used as a normal session token.
 SCOPE_ACCESS = "access"
-SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105
+SCOPE_PASSWORD_RESET = "password_reset"  # nosec B105 - token scope label, not a password
 
 # --- Canonical roles (lowercase everywhere to avoid authz drift) ---
 ROLE_STUDENT = "student"
@@ -206,7 +205,7 @@ async def login(email: EmailStr, password: str) -> Tuple[str, UUID, str]:
         if not existing_user:
             try:
                 _ph.verify(_DUMMY_HASH, password)
-            except Exception:  # nosec B110
+            except Exception:  # nosec B110 - intentionally equalizes missing-user timing
                 pass
             raise UserNotFoundError()
 

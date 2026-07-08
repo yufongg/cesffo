@@ -20,6 +20,28 @@ XP_BY_LEVEL = {"Beginner": 500, "Intermediate": 800, "Advanced": 1200}
 # Level threshold used to keep User.level in step with the dashboard's formula.
 XP_PER_LEVEL = 500
 
+# Course prices in cents for determining payment status
+COURSE_PRICES = {
+    "Budgeting 101: Take Control of Your Money": 0,
+    "Building an Emergency Fund": 0,
+    # Low-cost courses (100 cents)
+    "Budgeting Basics: Quick Start": 100,
+    "Money Math 101": 100,
+    "Saving Tips for Beginners": 100,
+    "Credit Score Fundamentals": 100,
+    "Debt Reduction 101": 100,
+    "Investing for Beginners": 100,
+    "Tax Basics": 100,
+    # Higher-priced courses
+    "Understanding Credit Scores": 1299,
+    "Getting Out of Debt": 1999,
+    "Investing Fundamentals": 1599,
+    "Index Funds & ETFs Explained": 2499,
+    "Retirement Planning Essentials": 2999,
+    "Taxes Made Simple": 999,
+    "Intro to Cryptocurrency & Risk": 3499,
+    "Building Multiple Income Streams": 3999,
+}
 # The seeded instructor owns every demo course + its content.
 INSTRUCTOR_USERNAME = "prof_lena"
 
@@ -48,28 +70,43 @@ CATEGORIES = [
 COURSES = [
     {"name": "Budgeting 101: Take Control of Your Money", "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "Build your first budget, track spending, and put every dollar to work.", "price_cents": 0},
     {"name": "Building an Emergency Fund",                "level": "Beginner",     "tags": ["Saving", "Budgeting"],            "summary": "Why a safety net matters and a step-by-step plan to build one.", "price_cents": 0},
-    {"name": "Understanding Credit Scores",              "level": "Beginner",     "tags": ["Credit", "Debt"],                 "summary": "What drives your credit score and how to improve it responsibly.", "price_cents": 1299},
-    {"name": "Getting Out of Debt",                      "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Compare the snowball and avalanche methods and build a payoff plan.", "price_cents": 1999},
-    {"name": "Investing Fundamentals",                   "level": "Beginner",     "tags": ["Investing", "Stocks"],            "summary": "Risk, return, compounding, and how markets actually work.", "price_cents": 1599},
-    {"name": "Index Funds & ETFs Explained",            "level": "Intermediate", "tags": ["Investing", "Stocks"],            "summary": "Low-cost, diversified investing for the long term.", "price_cents": 2499},
-    {"name": "Retirement Planning Essentials",          "level": "Intermediate", "tags": ["Retirement", "Investing"],        "summary": "Accounts, contributions, and the power of starting early.", "price_cents": 2999},
-    {"name": "Taxes Made Simple",                        "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],      "summary": "Understand how income tax works and keep more of what you earn.", "price_cents": 999},
-    {"name": "Intro to Cryptocurrency & Risk",          "level": "Advanced",     "tags": ["Crypto", "Investing"],            "summary": "How crypto works, the real risks, and how to evaluate it soberly.", "price_cents": 3499},
-    {"name": "Building Multiple Income Streams",        "level": "Advanced",     "tags": ["Income", "Entrepreneurship"],     "summary": "Side income, freelancing, and turning skills into earnings.", "price_cents": 3999},
+    # Low-cost courses (100 cents)
+    {"name": "Budgeting Basics: Quick Start",             "level": "Beginner",     "tags": ["Budgeting", "Personal Finance"], "summary": "A crash course in budgeting fundamentals.", "price_cents": 100},
+    {"name": "Money Math 101",                            "level": "Beginner",     "tags": ["Budgeting", "Math"],             "summary": "Master the basic math skills you need for personal finance.", "price_cents": 100},
+    {"name": "Saving Tips for Beginners",                 "level": "Beginner",     "tags": ["Saving", "Budgeting"],           "summary": "Learn practical saving tips for anyone starting out.", "price_cents": 100},
+    {"name": "Credit Score Fundamentals",                 "level": "Beginner",     "tags": ["Credit", "Debt"],                "summary": "Understand how your credit score is calculated.", "price_cents": 100},
+    {"name": "Debt Reduction 101",                        "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Strategies to reduce and eliminate debt.", "price_cents": 100},
+    {"name": "Investing for Beginners",                    "level": "Beginner",     "tags": ["Investing", "Stocks"],           "summary": "Start your investing journey with confidence.", "price_cents": 100},
+    {"name": "Tax Basics",                                 "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],     "summary": "Essential tax knowledge for every taxpayer.", "price_cents": 100},
+    # Higher-priced courses
+    {"name": "Understanding Credit Scores",               "level": "Beginner",     "tags": ["Credit", "Debt"],                "summary": "What drives your credit score and how to improve it responsibly.", "price_cents": 1299},
+    {"name": "Getting Out of Debt",                       "level": "Intermediate", "tags": ["Debt", "Personal Finance"],       "summary": "Compare the snowball and avalanche methods and build a payoff plan.", "price_cents": 1999},
+    {"name": "Investing Fundamentals",                    "level": "Beginner",     "tags": ["Investing", "Stocks"],           "summary": "Risk, return, compounding, and how markets actually work.", "price_cents": 1599},
+    {"name": "Index Funds & ETFs Explained",              "level": "Intermediate", "tags": ["Investing", "Stocks"],           "summary": "Low-cost, diversified investing for the long term.", "price_cents": 2499},
+    {"name": "Retirement Planning Essentials",            "level": "Intermediate", "tags": ["Retirement", "Investing"],        "summary": "Accounts, contributions, and the power of starting early.", "price_cents": 2999},
+    {"name": "Taxes Made Simple",                         "level": "Beginner",     "tags": ["Taxes", "Personal Finance"],     "summary": "Understand how income tax works and keep more of what you earn.", "price_cents": 999},
+    {"name": "Intro to Cryptocurrency & Risk",            "level": "Advanced",     "tags": ["Crypto", "Investing"],           "summary": "How crypto works, the real risks, and how to evaluate it soberly.", "price_cents": 3499},
+    {"name": "Building Multiple Income Streams",          "level": "Advanced",     "tags": ["Income", "Entrepreneurship"],    "summary": "Side income, freelancing, and turning skills into earnings.", "price_cents": 3999},
 ]
 
-# Which courses each student is enrolled in, with progress (0.0 - 1.0).
+# Which courses each student is enrolled in, with progress (0.0 - 1.0) and payment status.
 ENROLLMENTS = {
-    "demo":  [("Budgeting 101: Take Control of Your Money", 0.65),
-              ("Understanding Credit Scores", 0.20),
-              ("Investing Fundamentals", 1.0)],
-    "alex":  [("Budgeting 101: Take Control of Your Money", 0.4),
-              ("Investing Fundamentals", 0.8),
-              ("Index Funds & ETFs Explained", 0.1)],
-    "maria": [("Building an Emergency Fund", 0.5),
-              ("Getting Out of Debt", 0.3),
-              ("Retirement Planning Essentials", 0.15),
-              ("Taxes Made Simple", 0.9)],
+    "demo":  [
+        ("Budgeting 101: Take Control of Your Money", 0.65, "paid"),       # Free course
+        ("Understanding Credit Scores", 0.20, "pending"),                 # Paid - awaiting Stripe
+        ("Investing Fundamentals", 1.0, "paid"),                          # Paid - completed
+    ],
+    "alex":  [
+        ("Budgeting 101: Take Control of Your Money", 0.4, "paid"),       # Free course
+        ("Investing Fundamentals", 0.8, "pending"),                       # Paid - awaiting Stripe
+        ("Index Funds & ETFs Explained", 0.1, "pending"),                 # Paid - awaiting Stripe
+    ],
+    "maria": [
+        ("Building an Emergency Fund", 0.5, "paid"),                      # Free course
+        ("Getting Out of Debt", 0.3, "pending"),                          # Paid - awaiting Stripe
+        ("Retirement Planning Essentials", 0.15, "pending"),              # Paid - awaiting Stripe
+        ("Taxes Made Simple", 0.9, "paid"),                               # Paid - completed
+    ],
 }
 
 # Discussion-forum starter threads, keyed by category slug. Each seeds one
@@ -548,7 +585,17 @@ def get_or_create_course(session, spec, instructor_id) -> Course:
     return course
 
 
-def get_or_create_enrollment(session, course_id, student_id, progress) -> None:
+def get_or_create_enrollment(session, course_id, student_id, progress, payment_status="pending", stripe_payment_id=None) -> None:
+    """Create or update a CourseEnrollment with payment information.
+    
+    Args:
+        session: Database session
+        course_id: UUID of the course
+        student_id: UUID of the student
+        progress: Progress value (0.0 - 1.0)
+        payment_status: "paid" (payment completed) or "pending" (awaiting Stripe)
+        stripe_payment_id: Optional Stripe payment intent ID
+    """
     existing = session.scalar(
         select(CourseEnrollment).where(
             CourseEnrollment.course_id == course_id,
@@ -562,6 +609,10 @@ def get_or_create_enrollment(session, course_id, student_id, progress) -> None:
         student_id=student_id,
         progress=progress,
         dropped=False,
+        payment_status=payment_status,
+        stripe_payment_id=stripe_payment_id,
+        amount_paid=None,  # Will be populated via webhook
+        currency="SGD",
     ))
 
 
@@ -754,14 +805,16 @@ def seed() -> None:
 
         for student_key, enrolls in ENROLLMENTS.items():
             student_id = users[student_key].user_id
-            for course_name, progress in enrolls:
-                get_or_create_enrollment(session, courses[course_name].course_id, student_id, progress)
+            for course_name, progress, payment_status in enrolls:
+                price = COURSE_PRICES.get(course_name, 0)
+                stripe_payment_id = None if price == 0 else f"pi_{course_name}_{student_key}"
+                get_or_create_enrollment(session, courses[course_name].course_id, student_id, progress, payment_status, stripe_payment_id)
 
         # Derive each learner's XP/level from their (capped) progress so the
         # leaderboard columns hold realistic, self-consistent data.
-        for student_key, enrolls in ENROLLMENTS.items():
+        for student_key, enrolls, in ENROLLMENTS.items():
             total_xp = 0
-            for course_name, progress in enrolls:
+            for course_name, progress, payment_status in enrolls:
                 reward = courses[course_name].xp_reward or 0
                 total_xp += round(min(max(progress, 0.0), 1.0) * reward)
             users[student_key].xp = total_xp

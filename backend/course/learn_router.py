@@ -11,6 +11,7 @@ from model.models import (
     Course, CourseEnrollment, Module,
     InteractiveActivity, ActivitySubmission, ModuleProgress, User, Cart,
 )
+from model.constants import PaymentStatus
 from common.security import parse_uid as _parse_uid, to_uuid as _to_uuid
 from user.auth_router import get_current_user
 from core.rate_limit import limiter
@@ -32,6 +33,7 @@ def _require_enrolled_course(session, course_id: UUID, student_id: UUID) -> Cour
             CourseEnrollment.course_id == course_id,
             CourseEnrollment.student_id == student_id,
             CourseEnrollment.dropped.is_(False),
+            CourseEnrollment.payment_status == PaymentStatus.PAID
         )
     )
     if not enrolled:
@@ -253,7 +255,7 @@ async def learn_course(course_id: str, current_user: dict = Depends(get_current_
             session.commit()
 
         enrollment = session.scalar(
-            select(CourseEnrollment).where(CourseEnrollment.course_id == cid, CourseEnrollment.student_id == student_id)
+            select(CourseEnrollment).where(CourseEnrollment.course_id == cid, CourseEnrollment.student_id == student_id, CourseEnrollment.payment_status == PaymentStatus.PAID)
         )
 
         return CourseLearnView(
@@ -381,6 +383,8 @@ class CoursePreview(BaseModel):
     module_count: int = 0
     total_activities: int = 0
     is_enrolled: bool = False
+    is_pending_payment: bool =  False
+    price_cents: int = 0
     is_in_cart: bool = False
     modules: List[PreviewModule] = []
 
@@ -417,6 +421,15 @@ async def preview_course(course_id: str, current_user: dict = Depends(get_curren
                 CourseEnrollment.course_id == cid,
                 CourseEnrollment.student_id == student_id,
                 CourseEnrollment.dropped.is_(False),
+                CourseEnrollment.payment_status == PaymentStatus.PAID
+            )
+        ) is not None
+
+        is_pending = session.scalar(
+            select(CourseEnrollment).where(
+                CourseEnrollment.course_id == cid,
+                CourseEnrollment.student_id == student_id,
+                CourseEnrollment.payment_status == PaymentStatus.PENDING
             )
         ) is not None
         cart = session.scalar(select(Cart).where(Cart.user_id == student_id))
@@ -453,6 +466,8 @@ async def preview_course(course_id: str, current_user: dict = Depends(get_curren
             module_count=len(preview_modules),
             total_activities=sum(pm.activity_count for pm in preview_modules),
             is_enrolled=is_enrolled,
+            is_pending_payment=is_pending,
+            price_cents=course.price_cents,
             is_in_cart=is_in_cart,
             modules=preview_modules,
         )
@@ -470,9 +485,8 @@ async def enroll_course(course_id: str, request: Request, current_user: dict = D
         course = session.scalar(select(Course).where(Course.course_id == cid))
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
-        if (course.price_cents or 0) > 0:
-            raise HTTPException(status_code=402, detail="Paid courses must be checked out from the cart")
-
+        if course.price_cents != 0:
+            raise HTTPException(status_code=403, detail="You need to purchase the couse to be enrolled. Add it to cart instead.")
         existing = session.scalar(
             select(CourseEnrollment).where(
                 CourseEnrollment.course_id == cid,

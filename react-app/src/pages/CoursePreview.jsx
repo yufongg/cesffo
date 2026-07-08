@@ -120,7 +120,7 @@ export default function CoursePreview() {
       </div>
     );
   }
-
+  console.log(course);
   return (
     <div className="page">
       <div className="container">
@@ -155,7 +155,11 @@ export default function CoursePreview() {
             )}
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
-              {course.is_enrolled ? (
+              { course.is_pending_payment ? (
+                <Link to={`/courses/${courseId}/preview`} className="btn btn--primary" disabled>
+                  Awaiting payment
+                </Link>
+              ) : course.is_enrolled ? (
                 <Link to={`/courses/${courseId}/learn`} className="btn btn--primary">
                   Go to course
                 </Link>

@@ -7,6 +7,7 @@ from sqlalchemy import select, func, or_, and_
 
 from db.db import get_db_session
 from model.models import Course, CourseEnrollment, User
+from model.constants import PaymentStatus
 from common.security import parse_uid as _parse_uid
 from user.auth_router import get_current_user
 
@@ -30,6 +31,7 @@ class CourseCard(BaseModel):
     currency: str = "SGD"
     enrollment_count: int = 0
     is_enrolled: bool = False
+    is_pending_payment: bool = False
     progress: Optional[float] = None
 
 class OverviewResponse(BaseModel):
@@ -73,7 +75,7 @@ def _dict_str(value, key) -> Optional[str]:
 def _enrollment_counts(session) -> dict:
     rows = session.execute(
         select(CourseEnrollment.course_id, func.count())
-        .where(CourseEnrollment.dropped.is_(False))
+        .where(CourseEnrollment.dropped.is_(False), CourseEnrollment.payment_status == PaymentStatus.PAID)
         .group_by(CourseEnrollment.course_id)
     ).all()
     return {course_id: count for course_id, count in rows}
@@ -85,12 +87,24 @@ def _my_enrollments(session, uid: UUID):
         .where(
             CourseEnrollment.student_id == uid,
             CourseEnrollment.dropped.is_(False),
+            CourseEnrollment.payment_status == PaymentStatus.PAID
         )
     ).all()
     enrolled = {course_id for course_id, _ in rows}
     progress = {course_id: prog for course_id, prog in rows}
     return enrolled, progress
 
+
+def _my_purchases(session, uid: UUID):
+    rows = session.execute(
+        select(CourseEnrollment.course_id, CourseEnrollment.progress)
+        .where(
+            CourseEnrollment.student_id == uid,
+            CourseEnrollment.payment_status == PaymentStatus.PENDING
+        )
+    ).all()
+    pending = {course_id for course_id, _ in rows}
+    return pending
 
 def _instructor_names(session, courses) -> dict:
     ids = {c.instructor_id for c in courses if c.instructor_id}
@@ -129,7 +143,7 @@ def _rank_at_level(session, user: User) -> int:
     return (ahead or 0) + 1
 
 
-def _build_card(course, *, counts, enrolled_ids, progress_map, instructor_name) -> CourseCard:
+def _build_card(course, *, counts, enrolled_ids, progress_map, purchases_ids, instructor_name) -> CourseCard:
     cid = course.course_id
     return CourseCard(
         course_id=cid.hex,
@@ -142,7 +156,9 @@ def _build_card(course, *, counts, enrolled_ids, progress_map, instructor_name) 
         price_cents=getattr(course, "price_cents", 0) or 0,
         currency=getattr(course, "currency", "SGD") or "SGD",
         enrollment_count=counts.get(cid, 0),
+        price_cents = course.price_cents,
         is_enrolled=cid in enrolled_ids,
+        is_pending_payment = cid in purchases_ids,
         progress=progress_map.get(cid),
     )
 
@@ -157,6 +173,7 @@ async def overview(request: Request, current_user: dict = Depends(get_current_us
         courses = session.scalars(select(Course)).all()
         counts = _enrollment_counts(session)
         enrolled_ids, progress_map = _my_enrollments(session, uid)
+        pending_payment_course_ids = _my_purchases(session, uid)
         names = _instructor_names(session, courses)
 
         enrolled_cards, rec_pool = [], []
@@ -166,6 +183,7 @@ async def overview(request: Request, current_user: dict = Depends(get_current_us
                 counts=counts,
                 enrolled_ids=enrolled_ids,
                 progress_map=progress_map,
+                purchases_ids=pending_payment_course_ids,
                 instructor_name=names.get(course.instructor_id),
             )
             (enrolled_cards if card.is_enrolled else rec_pool).append(card)
@@ -242,6 +260,7 @@ async def list_courses(
 
         counts = _enrollment_counts(session)
         enrolled_ids, progress_map = _my_enrollments(session, uid)
+        pending_payment_course_ids = _my_purchases(session, uid)
         names = _instructor_names(session, courses)
 
         if sort == "newest":
@@ -257,6 +276,7 @@ async def list_courses(
                 counts=counts,
                 enrolled_ids=enrolled_ids,
                 progress_map=progress_map,
+                purchases_ids=pending_payment_course_ids,
                 instructor_name=names.get(course.instructor_id),
             )
             for course in courses

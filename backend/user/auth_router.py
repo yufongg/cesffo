@@ -146,9 +146,9 @@ async def login_user(request: Request, req: UserLoginSchema, response: Response)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "force_password_reset": True,  # nosec B105
+                "force_password_reset": True,  # nosec B105 - response flag, not a password
                 "reset_token": e.reset_token,
-                "token_type": "reset",  # nosec B105
+                "token_type": "reset",  # nosec B105 - token type label, not a password
             },
         )
     except AccountLockedError:

@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship
 
 from db.db import Base
 
+
 # --- USER MODEL ---
 class User(Base):
     __tablename__ = "user"
@@ -20,9 +21,9 @@ class User(Base):
     auth_attempts = Column(Integer, default=0, nullable=False)
     lockout_timestamp = Column(DateTime(timezone=True), nullable=True)
     role = Column(String(50), default="student", nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    force_password_reset = Column(Boolean, default=False, nullable=False)
-    is_deleted = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)        # admin can ban (False) / activate (True)
+    force_password_reset = Column(Boolean, default=False, nullable=False)  # set True after an admin password reset
+    is_deleted = Column(Boolean, default=False, nullable=False)      # soft-delete flag
 
     #? Gamification / leaderboard fields
     xp = Column(Integer, default=0, nullable=False)                 # lifetime XP earned (drives leaderboards)
@@ -308,6 +309,7 @@ class PostReport(Base):
 
     post = relationship("Post", back_populates="reports")
 
+
 # --- COURSE ENROLLMENT MODEL ---
 class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
@@ -319,7 +321,10 @@ class CourseEnrollment(Base):
     enrolled_date = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
     dropped = Column(Boolean, default=False, nullable=False)
 
-    
+    payment_status = Column(String(20), default="failed", nullable=False)  # pending, paid, failed, refunded
+    stripe_payment_id = Column(String(255), nullable=True)  # Stripe PaymentIntent ID
+    amount_paid = Column(Integer, default=0, nullable=True)  # Amount in cents
+    currency = Column(String(3), default="SGD", nullable=True)
     # Relationships
     course = relationship("Course", back_populates="enrollments")
     # student = relationship("User", back_populates="enrollments")
@@ -341,7 +346,7 @@ class Notification(Base):
     is_read = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    
+
 # --- CART MODEL --- 
 class Cart(Base):
     __tablename__ = "carts"

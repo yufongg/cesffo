@@ -81,6 +81,19 @@ jobs:
 
     - name: Execute Frontend Vitest Suite
       run: docker compose -f docker-compose.yml exec -T frontend npm run test:ci
+      
+    - name: Container System Logs on Failure
+      if: failure()
+      run: |
+        docker compose ps
+        docker compose logs backend
+        docker compose logs db
+
+    - name: Dump Docker Logs on Failure
+      if: failure()
+      run: |
+        docker compose -f docker-compose.yml ps
+        docker compose -f docker-compose.yml logs --no-color backend db frontend
 
     - name: Dump Docker Logs on Failure
       if: failure()

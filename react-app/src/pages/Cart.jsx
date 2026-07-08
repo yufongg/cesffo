@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import DashboardSidebar from '../components/DashboardSidebar';
 import { CartApi } from '../services/cartApi';
 
@@ -19,8 +19,19 @@ export default function Cart() {
   const [loading, setLoading] = useState(true);
   const [busyCourseId, setBusyCourseId] = useState('');
   const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [stripeUrl, setStripeUrl] = useState('');
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
+  // Reset checkout state when cart is refreshed
+  useEffect(() => {
+    setCheckoutComplete(false);
+    setSuccess('');
+    setError('');
+  }, [cart.items.length]);
+  const [searchParams] = useSearchParams();
 
   const items = cart.items || [];
   const totalLabel = useMemo(
@@ -64,19 +75,92 @@ export default function Cart() {
 
   async function checkout() {
     setCheckingOut(true);
+    setCheckoutComplete(false);
     setError('');
     setSuccess('');
+    
     try {
-      const result = await CartApi.checkout();
-      await loadCart();
-      const count = result?.enrolled?.length || 0;
-      setSuccess(`${count} ${count === 1 ? 'course' : 'courses'} enrolled successfully.`);
+      // Get cart data for the return URL
+      const cartData = await CartApi.getCart();
+      const returnUrl = `${window.location.origin}/cart`;
+      const successUrl = `${window.location.origin}/stripe/success`;
+      
+      // Call checkout - backend will return the Stripe URL
+      const response = await CartApi.checkout();
+      
+      // Backend returns a JSON object with the redirect URL (since FastAPI redirects don't work well with fetch)
+      if (response?.redirect_url) {
+        setIsRedirecting(true);
+        // Redirect to Stripe checkout page
+        window.location.href = response.redirect_url;  // + `&return_url=${encodeURIComponent(returnUrl)}`;
+      } else {
+        throw new Error('Unexpected checkout response');
+      }
     } catch (e) {
-      setError(e.message || 'Checkout failed');
-    } finally {
+      setIsRedirecting(false);
       setCheckingOut(false);
+      setError(e.message || 'Checkout failed');
     }
   }
+
+  // Handle being redirected back from Stripe
+  useEffect(() => {
+    // Check if we're being redirected back from Stripe
+    const urlParams = new URLSearchParams(window.location.search);
+    const returnUrl = urlParams.get('return_url');
+    
+    // If we have a return URL, verify payment and redirect there
+    if (returnUrl) {
+      // Store the return URL for verification
+      window.__returnUrl = returnUrl;
+    }
+  }, []);
+
+  // Verify payment after Stripe redirect
+  const verifyPayment = async (sessionId) => {
+    try {
+      const returnUrl = window.__returnUrl || `${window.location.origin}/cart`;
+      const response = await fetch('/api/v1/cart/stripe/success', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ stripe_session_id: sessionId, return_url: returnUrl }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Payment verification failed');
+      }
+
+      const data = await response.json();
+      
+      // Reload cart to update enrollment status
+      await loadCart();
+      setSuccess(`Payment verified! You have been enrolled in ${data.item_count} ${data.item_count === 1 ? 'course' : 'courses'}.`);
+      setCheckoutComplete(true);
+      
+      // Redirect to return URL after a short delay
+      setTimeout(() => {
+        navigate(returnUrl);
+      }, 2000);
+    } catch (e) {
+      setError(e.message || 'Unable to verify payment');
+    }
+  };
+
+  // Handle being redirected back from Stripe
+  useEffect(() => {
+    // Check if we're being redirected back from Stripe
+    const urlParams = new URLSearchParams(window.location.search);
+    const stripeSessionId = urlParams.get('stripeSessionId');
+    
+    if (stripeSessionId) {
+      // Verify the payment through the backend
+      verifyPayment(stripeSessionId);
+    }
+  }, []);
+
+  
 
   return (
     <div className="page">
