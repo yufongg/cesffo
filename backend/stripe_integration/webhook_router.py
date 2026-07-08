@@ -18,7 +18,6 @@ async def stripe_webhook(request: Request):
     Verifies signature and processes payment events.
     """
     endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
-    endpoint_secret =  "whsec_da3f5b6cc1a02750b003495d3463a25bdae941e2374203b1b373a92e60dd0c75"
     raw_payload = await request.body()
     payload = raw_payload.decode('utf-8')
 
@@ -69,9 +68,7 @@ async def _handle_checkout_completed(data: dict, request: Request):
     """
     stripe_session = data["object"]
     session_id = stripe_session.id  
-    if os.getenv("APP_ENV", "development") == "development":
-        session_id = "cs_test_b1QxcLcnhHzHL7QwTWShnkwhXH0G7F6CF3njlg8W6IeipBJBXBQlOnKtxY"
-
+    
     with get_db_session() as db_session:
         # Look up all pending records matching this exact checkout session ID
         existing_enrollments = db_session.scalars(
