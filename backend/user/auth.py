@@ -181,8 +181,12 @@ def hash_password(password: str) -> str:
 
 
 def generate_temp_password(length: int = 16) -> str:
-    """Generate a cryptographically strong temporary password that satisfies the
-    SR-01 policy (comfortably exceeds the length floor).
+    """Generate a cryptographically strong temporary password.
+
+    Uses secrets (CSPRNG) and mixes all four character classes. The NIST-style
+    policy (SR-01) no longer requires composition, but a long random mixed value
+    trivially satisfies the length rule and will never appear in the HIBP breach
+    corpus, so it always passes validate_password_strength().
     """
     length = max(length, MIN_PASSWORD_LENGTH)
     pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS)
