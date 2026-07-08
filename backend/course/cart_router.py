@@ -212,15 +212,24 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
                 )
             )
             if existing:
-                if existing.dropped:
-                    existing.dropped = False
-                    existing.payment_status = PaymentStatus.PAID
-                    enrolled.append(course.course_id.hex)
+                if existing.payment_status == PaymentStatus.PAID:
+                    if existing.dropped:
+                        # Dropped after a completed purchase: reactivate
+                        # without charging again.
+                        existing.dropped = False
+                        enrolled.append(course.course_id.hex)
+                    else:
+                        skipped.append(course.course_id.hex)
                     continue
-                elif existing.payment_status != PaymentStatus.FAILED:
+                if not existing.dropped and existing.payment_status == PaymentStatus.PENDING:
+                    # A checkout for this course is already in flight.
                     skipped.append(course.course_id.hex)
                     continue
-                
+                # Any other row never had a successful payment (failed,
+                # refunded, or dropped mid-checkout): it must go through
+                # Stripe again — reuse the row below, don't grant access here.
+
+
             # Build course details for Stripe line items from database
             content = course.content if isinstance(course.content, dict) else {}
             summary = content.get("summary", "")
@@ -233,14 +242,25 @@ async def checkout_cart(request: Request, current_user: dict = Depends(get_curre
             })
 
             if course.price_cents == 0:
-                session.add(CourseEnrollment(
-                    course_id=course.course_id,
-                    student_id=user_id,
-                    progress=0.0,
-                    dropped=False,
-                    payment_status = PaymentStatus.PAID
-                ))
+                if existing is not None:
+                    existing.dropped = False
+                    existing.payment_status = PaymentStatus.PAID
+                else:
+                    session.add(CourseEnrollment(
+                        course_id=course.course_id,
+                        student_id=user_id,
+                        progress=0.0,
+                        dropped=False,
+                        payment_status = PaymentStatus.PAID
+                    ))
                 enrolled.append(course.course_id.hex)
+            elif existing is not None:
+                # Reuse the never-paid row instead of inserting a duplicate.
+                existing.dropped = False
+                existing.payment_status = PaymentStatus.PENDING
+                existing.stripe_payment_id = None  # replaced with the new session id below
+                pending_enrollments.append(existing)
+                await_payment.append(course)
             else:
                 new_pending_enrollment = CourseEnrollment(
                     course_id=course.course_id,
