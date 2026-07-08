@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import RichTextEditor from './RichTextEditor';
 import { validateImageUpload, MAX_UPLOAD_BYTES } from '../Security/FileUpload';
 import { plainText } from '../../utils/forumText';
+import { fileUrl } from '../../api/client';
 
 const MAX_FILES = 5;
 const MAX_TITLE_LEN = 255;
@@ -131,8 +132,8 @@ export default function ThreadComposer({
             <div className="forum-attachments">
               {existingAttachments.map((attachment) => (
                 <figure className="forum-attachment" key={attachment.attachment_id}>
-                  <a href={attachment.file_url} target="_blank" rel="noreferrer">
-                    <img src={attachment.file_url} alt={attachment.file_name} loading="lazy" />
+                  <a href={fileUrl(attachment.file_url)} target="_blank" rel="noreferrer">
+                    <img src={fileUrl(attachment.file_url)} alt={attachment.file_name} loading="lazy" />
                   </a>
 
                   <button

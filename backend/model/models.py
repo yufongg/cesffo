@@ -86,6 +86,28 @@ class LoginChallenge(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+# --- PASSWORD CHANGE CHALLENGE (logged-in password update OTP) ---
+class PasswordChangeChallenge(Base):
+    """A logged-in password change awaiting an emailed 6-digit code. Created
+    only after the current password and proposed new password pass preflight;
+    the password changes only when the code is confirmed."""
+    __tablename__ = "password_change_challenge"
+
+    challenge_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    code_hash = Column(String(255), nullable=False)
+    code_expires = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    last_sent_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    sends = Column(Integer, default=1, nullable=False)
+    password_fingerprint = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 # --- CATEGORY MODEL ---
 class Category(Base):
     __tablename__ = "category"

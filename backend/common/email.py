@@ -101,6 +101,41 @@ def send_password_reset_email(to_email: str, username: str, reset_link: str, exp
     send_email(to_email, subject, text_body, html_body)
 
 
+def _send_code_email(
+    to_email: str,
+    username: str,
+    code: str,
+    expires_minutes: int,
+    *,
+    subject: str,
+    instruction: str,
+    if_not_you: str,
+) -> None:
+    text_body = (
+        f"Hi {username},\n\n"
+        f"{instruction}\n\n"
+        f"    {code}\n\n"
+        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
+        f"{if_not_you}\n\n"
+        "— The Cesffo team"
+    )
+
+    safe_user = html.escape(username)
+    safe_code = html.escape(code)
+    safe_instruction = html.escape(instruction)
+    safe_if_not_you = html.escape(if_not_you)
+    html_body = (
+        f"<p>Hi {safe_user},</p>"
+        f"<p>{safe_instruction}</p>"
+        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
+        f"<p>The code expires in {expires_minutes} minutes and can only be used "
+        f"once. {safe_if_not_you}</p>"
+        "<p>— The Cesffo team</p>"
+    )
+
+    send_email(to_email, subject, text_body, html_body)
+
+
 def send_verification_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
     """Compose and send the registration email-verification code.
 
@@ -109,29 +144,15 @@ def send_verification_code_email(to_email: str, username: str, code: str, expire
     username is HTML-escaped before being placed in the HTML part (the code is
     digits only) to prevent injection into the message body.
     """
-    subject = "Your Cesffo verification code"
-
-    text_body = (
-        f"Hi {username},\n\n"
-        "Use this code to finish creating your Cesffo account:\n\n"
-        f"    {code}\n\n"
-        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
-        "If you didn't try to sign up, you can safely ignore this email.\n\n"
-        "— The Cesffo team"
+    _send_code_email(
+        to_email,
+        username,
+        code,
+        expires_minutes,
+        subject="Your Cesffo verification code",
+        instruction="Use this code to finish creating your Cesffo account:",
+        if_not_you="If you didn't try to sign up, you can safely ignore this email.",
     )
-
-    safe_user = html.escape(username)
-    safe_code = html.escape(code)
-    html_body = (
-        f"<p>Hi {safe_user},</p>"
-        "<p>Use this code to finish creating your Cesffo account:</p>"
-        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
-        f"<p>The code expires in {expires_minutes} minutes and can only be used "
-        "once. If you didn't try to sign up, you can safely ignore this email.</p>"
-        "<p>— The Cesffo team</p>"
-    )
-
-    send_email(to_email, subject, text_body, html_body)
 
 
 def send_login_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
@@ -142,28 +163,28 @@ def send_login_code_email(to_email: str, username: str, code: str, expires_minut
     it is confirmed. The username is HTML-escaped before being placed in the HTML
     part (the code is digits only) to prevent injection into the message body.
     """
-    subject = "Your Cesffo sign-in code"
-
-    text_body = (
-        f"Hi {username},\n\n"
-        "Use this code to finish signing in to your Cesffo account:\n\n"
-        f"    {code}\n\n"
-        f"The code expires in {expires_minutes} minutes and can only be used once.\n"
-        "If you didn't try to sign in, someone may have your password — please "
-        "reset it as soon as possible.\n\n"
-        "— The Cesffo team"
+    _send_code_email(
+        to_email,
+        username,
+        code,
+        expires_minutes,
+        subject="Your Cesffo sign-in code",
+        instruction="Use this code to finish signing in to your Cesffo account:",
+        if_not_you=(
+            "If you didn't try to sign in, someone may have your password — "
+            "please reset it as soon as possible."
+        ),
     )
 
-    safe_user = html.escape(username)
-    safe_code = html.escape(code)
-    html_body = (
-        f"<p>Hi {safe_user},</p>"
-        "<p>Use this code to finish signing in to your Cesffo account:</p>"
-        f'<p style="font-size:28px;font-weight:700;letter-spacing:6px;">{safe_code}</p>'
-        f"<p>The code expires in {expires_minutes} minutes and can only be used "
-        "once. If you didn't try to sign in, someone may have your password — "
-        "please reset it as soon as possible.</p>"
-        "<p>— The Cesffo team</p>"
-    )
 
-    send_email(to_email, subject, text_body, html_body)
+def send_password_change_code_email(to_email: str, username: str, code: str, expires_minutes: int) -> None:
+    """Compose and send the logged-in password-change confirmation code."""
+    _send_code_email(
+        to_email,
+        username,
+        code,
+        expires_minutes,
+        subject="Confirm your Cesffo password change",
+        instruction="Use this code to confirm your Cesffo password change:",
+        if_not_you="If you didn't try to change your password, reset your password immediately.",
+    )

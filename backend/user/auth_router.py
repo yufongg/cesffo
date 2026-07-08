@@ -14,6 +14,7 @@ from core.securedCookie import oauth2_scheme, set_auth_cookie, clear_auth_cookie
 from common.audit import log_action
 from common.email import (
     send_password_reset_email, send_verification_code_email, send_login_code_email,
+    send_password_change_code_email,
 )
 from common.security import client_ip as _client_ip, parse_uid as _parse_uid
 from db.db import get_db_session
@@ -22,14 +23,16 @@ from model.response_model import ResponseModel
 from .auth import (
     request_registration, verify_registration, resend_registration_code,
     login, verify_login_otp, resend_login_otp,
-    change_password, change_password_authenticated, update_profile,
+    change_password, update_profile,
+    request_password_change_otp, verify_password_change_otp, resend_password_change_otp,
     request_password_reset, decode_access_token,
     ExistingUserError, UserNotFoundError, PasswordsMismatchError,
     AccountLockedError, InactiveAccountError, DatabaseError, PasswordPolicyError,
     PasswordResetRequiredError, InvalidCurrentPasswordError, ResetTokenInvalidError,
     InvalidVerificationError, LoginOtpRequiredError, InvalidLoginOtpError,
+    InvalidPasswordChangeOtpError,
     MIN_PASSWORD_LENGTH, RESET_LINK_EXPIRE_MINUTES, VERIFICATION_CODE_EXPIRE_MINUTES,
-    LOGIN_OTP_EXPIRE_MINUTES,
+    LOGIN_OTP_EXPIRE_MINUTES, PASSWORD_CHANGE_OTP_EXPIRE_MINUTES,
     ROLE_ADMIN, ROLE_INSTRUCTOR,
     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, SCOPE_PASSWORD_RESET, AUTH_SUCCESS
 )
@@ -55,6 +58,12 @@ _GENERIC_VERIFICATION_MESSAGE = (
 # account, but the response is identical so neither leaks which emails are registered.
 _GENERIC_LOGIN_OTP_MESSAGE = (
     "If those credentials are valid, a 6-digit sign-in code has been sent to your email."
+)
+_GENERIC_PASSWORD_CHANGE_OTP_MESSAGE = (
+    "If the password details are valid, a 6-digit confirmation code has been sent to your email."  # nosec B105
+)
+_GENERIC_PASSWORD_CHANGE_FAILURE = (
+    "Password change could not be confirmed. Check your current password and code."  # nosec B105
 )
 
 reset_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -180,6 +189,10 @@ class ChangeMyPasswordSchema(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=128)
     new_password_confirm: str
+
+
+class ConfirmChangeMyPasswordSchema(ChangeMyPasswordSchema):
+    code: str = Field(..., pattern=r"^\d{6}$", description="The 6-digit password-change code.")
 
 
 # --- Registration audit (SR-11) ---
@@ -448,23 +461,58 @@ async def update_profile_route(
     return UserProfileResponse(username=username, email=email, role=role)
 
 
-@router.post("/change-my-password", response_model=AuthResponseSchema)
-@limiter.limit("5/minute")  # limit online password-guessing of the current password
-async def change_my_password_route(
+@router.post("/change-my-password/request-otp", response_model=AuthResponseSchema)
+@limiter.limit("5/minute")
+async def request_change_my_password_otp_route(
     request: Request,
     req: ChangeMyPasswordSchema,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
-    """Self-service password change for a logged-in user. Requires the current
-    password (verified server-side) — distinct from /change-password, which is
-    the forced-reset flow gated by a one-time reset token."""
+    """Preflight a logged-in password change and email a confirmation code."""
     uid = _parse_uid(current_user)
     try:
-        await change_password_authenticated(
+        email, username, code = await request_password_change_otp(
             uid, req.current_password, req.new_password, req.new_password_confirm
         )
     except InvalidCurrentPasswordError:
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Password change request failed")
+    except PasswordsMismatchError:
+        raise HTTPException(status_code=400, detail="New passwords do not match")
+    except PasswordPolicyError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except UserNotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    background_tasks.add_task(
+        send_password_change_code_email,
+        email,
+        username,
+        code,
+        PASSWORD_CHANGE_OTP_EXPIRE_MINUTES,
+    )
+    return AuthResponseSchema(detail=_GENERIC_PASSWORD_CHANGE_OTP_MESSAGE)
+
+
+@router.post("/change-my-password", response_model=AuthResponseSchema)
+@limiter.limit("10/minute")
+async def change_my_password_route(
+    request: Request,
+    req: ConfirmChangeMyPasswordSchema,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm the emailed code and apply the logged-in password change."""
+    uid = _parse_uid(current_user)
+    try:
+        await verify_password_change_otp(
+            uid,
+            req.current_password,
+            req.new_password,
+            req.new_password_confirm,
+            req.code,
+        )
+    except (InvalidCurrentPasswordError, InvalidPasswordChangeOtpError):
+        raise HTTPException(status_code=400, detail=_GENERIC_PASSWORD_CHANGE_FAILURE)
     except PasswordsMismatchError:
         raise HTTPException(status_code=400, detail="New passwords do not match")
     except PasswordPolicyError as e:
@@ -473,6 +521,31 @@ async def change_my_password_route(
         raise HTTPException(status_code=404, detail="User not found")
 
     return AuthResponseSchema(detail=AUTH_SUCCESS)
+
+
+@router.post("/change-my-password/resend", response_model=AuthResponseSchema)
+@limiter.limit("3/minute")
+async def resend_change_my_password_otp_route(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Re-send the code for an active logged-in password-change challenge."""
+    uid = _parse_uid(current_user)
+    try:
+        result = await resend_password_change_otp(uid)
+    except Exception:
+        result = None
+    if result:
+        email, username, code = result
+        background_tasks.add_task(
+            send_password_change_code_email,
+            email,
+            username,
+            code,
+            PASSWORD_CHANGE_OTP_EXPIRE_MINUTES,
+        )
+    return AuthResponseSchema(detail=_GENERIC_PASSWORD_CHANGE_OTP_MESSAGE)
 
 
 @router.post("/forgot-password", response_model=AuthResponseSchema)

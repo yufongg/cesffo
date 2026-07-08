@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
 from argon2 import PasswordHasher
@@ -9,7 +10,15 @@ from main import app  # Your FastAPI instance
 from user.auth import (
     request_registration,
     login,
+    request_password_change_otp,
+    verify_password_change_otp,
+    resend_password_change_otp,
+    hash_password,
+    reset_token_fingerprint,
     ExistingUserError,
+    InvalidCurrentPasswordError,
+    InvalidPasswordChangeOtpError,
+    PasswordPolicyError,
     UserNotFoundError,
     PasswordsMismatchError,
     LoginOtpRequiredError,
@@ -276,3 +285,345 @@ def test_endpoint_validation_boundary():
 
     response = client.post("/api/v1/auth/register", json=payload)
     assert response.status_code == 422  # Unprocessable Entity
+
+
+# =========================================================================
+# SECTION 3: LOGGED-IN PASSWORD CHANGE OTP
+# =========================================================================
+
+def _password_change_user(current_password="CurrentP@ss1"):
+    user = Mock()
+    user.user_id = uuid4()
+    user.username = "olduser"
+    user.email = "localpart@finwise.com"
+    user.password = hash_password(current_password)
+    user.role = "student"
+    user.is_deleted = False
+    user.is_active = True
+    return user
+
+
+def _password_change_challenge(user, code="123456"):
+    challenge = Mock()
+    challenge.user_id = user.user_id
+    challenge.code_hash = hash_password(code)
+    challenge.code_expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+    challenge.attempts = 0
+    challenge.sends = 1
+    challenge.last_sent_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    challenge.password_fingerprint = reset_token_fingerprint(user.password)
+    return challenge
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_request_password_change_otp_success(mock_get_db_session):
+    user = _password_change_user()
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, None]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    email, username, code = await request_password_change_otp(
+        user.user_id,
+        "CurrentP@ss1",
+        "BrandNewP@ss2",
+        "BrandNewP@ss2",
+    )
+
+    assert email == user.email
+    assert username == user.username
+    assert code.isdigit() and len(code) == 6
+    mock_session.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_request_password_change_otp_rejects_wrong_current_password(mock_get_db_session):
+    user = _password_change_user()
+    mock_session = Mock()
+    mock_session.scalar.return_value = user
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(InvalidCurrentPasswordError):
+        await request_password_change_otp(
+            user.user_id,
+            "WrongP@ss1",
+            "BrandNewP@ss2",
+            "BrandNewP@ss2",
+        )
+
+    mock_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_request_password_change_otp_rejects_username_in_new_password(mock_get_db_session):
+    user = _password_change_user()
+    mock_session = Mock()
+    mock_session.scalar.return_value = user
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(PasswordPolicyError) as exc_info:
+        await request_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "olduserA1!",
+            "olduserA1!",
+        )
+
+    assert exc_info.value.message == "Password must not contain your username"
+    mock_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_request_password_change_otp_rejects_email_local_part_in_new_password(mock_get_db_session):
+    user = _password_change_user()
+    mock_session = Mock()
+    mock_session.scalar.return_value = user
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(PasswordPolicyError) as exc_info:
+        await request_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "localpartA1!",
+            "localpartA1!",
+        )
+
+    assert exc_info.value.message == "Password must not contain your email"
+    mock_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_request_password_change_otp_rejects_same_password(mock_get_db_session):
+    user = _password_change_user()
+    mock_session = Mock()
+    mock_session.scalar.return_value = user
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(PasswordPolicyError) as exc_info:
+        await request_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "CurrentP@ss1",
+            "CurrentP@ss1",
+        )
+
+    assert "different from the current one" in exc_info.value.message
+    mock_session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_verify_password_change_otp_success_consumes_challenge(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    old_password_hash = user.password
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    await verify_password_change_otp(
+        user.user_id,
+        "CurrentP@ss1",
+        "BrandNewP@ss2",
+        "BrandNewP@ss2",
+        "123456",
+    )
+
+    mock_session.delete.assert_called_once_with(challenge)
+    assert user.password != old_password_hash
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_verify_password_change_otp_wrong_code_increments_attempts(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(InvalidPasswordChangeOtpError):
+        await verify_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "BrandNewP@ss2",
+            "BrandNewP@ss2",
+            "000000",
+        )
+
+    assert challenge.attempts == 1
+    mock_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_verify_password_change_otp_exhausted_challenge_is_burned(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    challenge.attempts = 5
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(InvalidPasswordChangeOtpError):
+        await verify_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "BrandNewP@ss2",
+            "BrandNewP@ss2",
+            "123456",
+        )
+
+    mock_session.delete.assert_called_once_with(challenge)
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_verify_password_change_otp_expired_challenge_is_burned(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    challenge.code_expires = datetime.now(timezone.utc) - timedelta(minutes=1)
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(InvalidPasswordChangeOtpError):
+        await verify_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "BrandNewP@ss2",
+            "BrandNewP@ss2",
+            "123456",
+        )
+
+    mock_session.delete.assert_called_once_with(challenge)
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_verify_password_change_otp_stale_fingerprint_is_burned(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    challenge.password_fingerprint = "stale-fingerprint"
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    with pytest.raises(InvalidPasswordChangeOtpError):
+        await verify_password_change_otp(
+            user.user_id,
+            "CurrentP@ss1",
+            "BrandNewP@ss2",
+            "BrandNewP@ss2",
+            "123456",
+        )
+
+    mock_session.delete.assert_called_once_with(challenge)
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_resend_password_change_otp_respects_cooldown(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    challenge.last_sent_at = datetime.now(timezone.utc)
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    assert await resend_password_change_otp(user.user_id) is None
+
+
+@pytest.mark.asyncio
+@patch("user.auth.get_db_session")
+async def test_resend_password_change_otp_respects_max_sends(mock_get_db_session):
+    user = _password_change_user()
+    challenge = _password_change_challenge(user)
+    challenge.sends = 5
+    mock_session = Mock()
+    mock_session.scalar.side_effect = [user, challenge]
+    mock_get_db_session.return_value.__enter__.return_value = mock_session
+
+    assert await resend_password_change_otp(user.user_id) is None
+
+
+@patch("user.auth_router.send_password_change_code_email")
+@patch("user.auth_router.request_password_change_otp")
+def test_endpoint_password_change_request_otp_success(mock_request_otp, mock_send_code):
+    from user import auth_router
+
+    async def fake_current_user():
+        return {"user_id": uuid4().hex, "role": "student"}
+
+    app.dependency_overrides[auth_router.get_current_user] = fake_current_user
+    mock_request_otp.return_value = ("active_user@finwise.com", "active_user", "123456")
+    try:
+        response = client.post(
+            "/api/v1/auth/change-my-password/request-otp",
+            json={
+                "current_password": "CurrentP@ss1",
+                "new_password": "BrandNewP@ss2",
+                "new_password_confirm": "BrandNewP@ss2",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "123456" not in response.text
+    mock_send_code.assert_called_once()
+
+
+@patch("user.auth_router.request_password_change_otp")
+def test_endpoint_password_change_request_otp_wrong_current_password_generic(mock_request_otp):
+    from user import auth_router
+
+    async def fake_current_user():
+        return {"user_id": uuid4().hex, "role": "student"}
+
+    app.dependency_overrides[auth_router.get_current_user] = fake_current_user
+    mock_request_otp.side_effect = InvalidCurrentPasswordError()
+    try:
+        response = client.post(
+            "/api/v1/auth/change-my-password/request-otp",
+            json={
+                "current_password": "WrongP@ss1",
+                "new_password": "BrandNewP@ss2",
+                "new_password_confirm": "BrandNewP@ss2",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Password change request failed"
+
+
+@patch("user.auth_router.verify_password_change_otp")
+def test_endpoint_password_change_confirm_bad_otp_generic(mock_verify_otp):
+    from user import auth_router
+
+    async def fake_current_user():
+        return {"user_id": uuid4().hex, "role": "student"}
+
+    app.dependency_overrides[auth_router.get_current_user] = fake_current_user
+    mock_verify_otp.side_effect = InvalidPasswordChangeOtpError()
+    try:
+        response = client.post(
+            "/api/v1/auth/change-my-password",
+            json={
+                "current_password": "CurrentP@ss1",
+                "new_password": "BrandNewP@ss2",
+                "new_password_confirm": "BrandNewP@ss2",
+                "code": "000000",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert "current password and code" in response.json()["detail"].lower()
