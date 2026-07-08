@@ -467,7 +467,6 @@ async def preview_course(course_id: str, current_user: dict = Depends(get_curren
             total_activities=sum(pm.activity_count for pm in preview_modules),
             is_enrolled=is_enrolled,
             is_pending_payment=is_pending,
-            price_cents=course.price_cents,
             is_in_cart=is_in_cart,
             modules=preview_modules,
         )

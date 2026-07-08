@@ -156,7 +156,6 @@ def _build_card(course, *, counts, enrolled_ids, progress_map, purchases_ids, in
         price_cents=getattr(course, "price_cents", 0) or 0,
         currency=getattr(course, "currency", "SGD") or "SGD",
         enrollment_count=counts.get(cid, 0),
-        price_cents = course.price_cents,
         is_enrolled=cid in enrolled_ids,
         is_pending_payment = cid in purchases_ids,
         progress=progress_map.get(cid),
