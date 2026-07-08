@@ -780,7 +780,7 @@ def seed() -> None:
         # leaderboard columns hold realistic, self-consistent data.
         for student_key, enrolls in ENROLLMENTS.items():
             total_xp = 0
-            for course_name, progress in enrolls:
+            for course_name, progress, _payment_status in enrolls:
                 reward = courses[course_name].xp_reward or 0
                 total_xp += round(min(max(progress, 0.0), 1.0) * reward)
             users[student_key].xp = total_xp
