@@ -200,8 +200,9 @@ def generate_temp_password(length: int = 16) -> str:
 
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-    #! SR-01 (NIST SP 800-63B): length bounds only — no composition rules — then
-    #! the "must not contain your own username/email" checks and the HIBP
+    #! SR-01 (NIST SP 800-63B): length bounds only — no character-class/composition
+    #! rules (NIST explicitly says not to impose them). Then the NIST-endorsed
+    #! "must not contain your own username/email" checks and the HIBP
     #! breached-password screen. May block on network I/O (HIBP): async callers
     #! must invoke this via run_in_threadpool, never directly.
     if len(password) < MIN_PASSWORD_LENGTH:
