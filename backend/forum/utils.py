@@ -106,7 +106,7 @@ def post_to_response(post: Post, session=None) -> PostResponse:
     )
 
 
-def thread_to_response(thread: Thread, session=None) -> ThreadResponse:
+def thread_to_response(thread: Thread, session=None, like_count: int = 0, is_liked: bool = False,) -> ThreadResponse:
     top_level_posts = [post for post in thread.posts if post.parent_id is None]
     return ThreadResponse(
         thread_id=thread.thread_id.hex,
@@ -120,6 +120,8 @@ def thread_to_response(thread: Thread, session=None) -> ThreadResponse:
         created_at=thread.created_at,
         updated_at=thread.updated_at,
         post_count=len(top_level_posts),
+        like_count=like_count,
+        is_liked=is_liked,
     )
 
 

@@ -56,6 +56,7 @@ export default function AdminDashboard() {
             </p>
             <div className="row-actions">
               <Link to="/admin/users" className="btn btn--primary">Manage users</Link>
+                <Link to="/admin/report-handling" className="btn btn--secondary">Handle Reports</Link>
               <Link to="/adminAccount" className="btn btn--secondary">Admin account</Link>
             </div>
           </div>

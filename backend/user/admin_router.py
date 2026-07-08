@@ -1,32 +1,29 @@
 from typing import List, Optional
 from uuid import UUID
-
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
-
-import os
-from urllib.parse import quote
-
+from forum.schemas import (
+    UpdateReportStatusRequest,
+    ReportGroupResponse,
+    IndividualReportResponse,
+)
 from core.rate_limit import limiter
-from common.audit import log_action
-from common.email import send_password_reset_email
-from common.security import to_uuid, parse_uid as _parse_uid, client_ip as _client_ip
-from common.encryption import blind_index
+from common.security import to_uuid
 from db.db import get_db_session
-from model.models import User
+from model.models import (
+    User,
+    Report,
+    Thread,
+    Post,
+)
 from .auth import (
-    hash_password, generate_temp_password,
-    create_reset_token, RESET_LINK_EXPIRE_MINUTES,
-    ALLOWED_ROLES, ROLE_ADMIN, ROLE_STUDENT,
+    hash_password, generate_temp_password, validate_password_strength,
+    ALLOWED_ROLES, ROLE_ADMIN, ROLE_STUDENT, PasswordPolicyError,
 )
 from .auth_router import require_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin - User Management"])
-
-#? Same base URL the self-service forgot-password flow uses to build reset links.
-FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
-
 
 class AdminUserView(BaseModel):
     user_id: str
@@ -52,15 +49,10 @@ class AssignRoleRequest(BaseModel):
 class SetStatusRequest(BaseModel):
     is_active: bool
 
-
-class ResetLinkSentResponse(BaseModel):
+class TempPasswordResponse(BaseModel):
     user_id: str
-    detail: str = "A password reset link has been emailed to the user. Their current password is unchanged until they complete the reset."
-
-
-class UserCreatedResponse(BaseModel):
-    user_id: str
-    detail: str = "User created. A link to set their password has been emailed to them; the account cannot be signed into until they complete it."
+    temp_password: str
+    detail: str = "Share this one-time password over a secure channel. The user must change it on next login."
 
 
 # --- Helpers ---
@@ -124,59 +116,37 @@ async def list_users(
         return [_to_view(u) for u in users]
 
 
-@router.post("/users", response_model=UserCreatedResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("20/minute")  # account-provisioning endpoint — cap even for a compromised admin token
-async def create_user(
-    request: Request,
-    req: CreateUserRequest,
-    background_tasks: BackgroundTasks,
-    admin: dict = Depends(require_admin),
-):
+@router.post("/users", response_model=TempPasswordResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
+async def create_user(request: Request, req: CreateUserRequest, admin: dict = Depends(require_admin)):
 
     role = validate_role(req.role)
     email = req.email.strip().lower()
     username = req.username.strip()
 
-    #! The account needs a valid password hash so the one-time set-password token can be
-    #! bound to it (single-use, exactly like the reset flow). We anchor it to a CSPRNG
-    #! secret that is NEVER returned or logged — the user is unaware of it and can only
-    #! sign in after choosing their own password via the emailed link. This is strictly
-    #! safer than handing out a temporary password.
-    placeholder_secret = generate_temp_password(24)
-    hashed = hash_password(placeholder_secret)
+    temp_password = generate_temp_password()
+    hashed = hash_password(temp_password)
 
     with get_db_session() as session:
-        #? email is encrypted at rest, so dedupe by its blind index rather than the value.
-        if session.scalar(select(User).where(User.email_bidx == blind_index(email))):
+        if session.scalar(select(User).where(User.email == email)):
             raise HTTPException(status_code=409, detail="A user with that email already exists")
         if session.scalar(select(User).where(User.username == username)):
             raise HTTPException(status_code=409, detail="A user with that username already exists")
 
         user = User(
             email=email,
-            email_bidx=blind_index(email),
             username=username,
             password=hashed,
             role=role,
             is_active=True,
-            force_password_reset=True,  # must set a real password via the emailed link before use
+            force_password_reset=True,  # must rotate the temp password on first login
         )
         session.add(user)
         session.commit()
         session.refresh(user)
-
-        #! Bind the one-time token to the just-stored hash. The user chooses their own
-        #! password (typed twice, strength-checked) on the same /reset-password screen.
-        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
         uid_hex = user.user_id.hex
 
-    reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
-    #! Send after the response is returned — keeps SMTP latency/errors off the request path.
-    background_tasks.add_task(
-        send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
-    )
-
-    return UserCreatedResponse(user_id=uid_hex)
+    return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
 
 
 @router.patch("/users/{user_id}/role", response_model=AdminUserView)
@@ -187,18 +157,12 @@ async def assign_role(request: Request, user_id: str, req: AssignRoleRequest, ad
     with get_db_session() as session:
         user = retrieve_user(session, uid)
 
-        #! Don't let an admin demote the last remaining admin (including themselves) — would lock everyone out of admin.
+        # Guard: don't let an admin demote the last remaining admin (incl. self).
         if user.role == ROLE_ADMIN and role != ROLE_ADMIN:
             if _count_active_admins(session, exclude_id=uid) == 0:
                 raise HTTPException(status_code=409, detail="Cannot demote the last remaining admin")
 
         user.role = role
-        #! SR-11: a role change is security-relevant, so record it in the audit log.
-        log_action(
-            session, user_id=_parse_uid(admin), action="assign_role",
-            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
-            details={"new_role": role},
-        )
         session.commit()
         session.refresh(user)
         return _to_view(user)
@@ -223,52 +187,154 @@ async def set_status(request: Request, user_id: str, req: SetStatusRequest, admi
         user.is_active = req.is_active
         if req.is_active:
             user.auth_attempts = 0  # unlock on (re)activation
-        # SR-11: account suspension/reactivation is a security-relevant event.
-        log_action(
-            session, user_id=_parse_uid(admin),
-            action="suspend_account" if not req.is_active else "reactivate_account",
-            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
-            details={"is_active": req.is_active},
-        )
         session.commit()
         session.refresh(user)
         return _to_view(user)
 
 
-@router.post("/users/{user_id}/reset-password", response_model=ResetLinkSentResponse)
-@limiter.limit("20/minute")  # reset-email trigger — cap even for a compromised admin token
-async def reset_password(
-    request: Request,
-    user_id: str,
-    background_tasks: BackgroundTasks,
-    admin: dict = Depends(require_admin),
-):
-    """Email the user a one-time link to choose a new password — the same track as
-    self-service "forgot password". The admin never sees or sets a password: no
-    temporary password is generated, and the user's current password is left
-    untouched until they complete the reset via the emailed link."""
+@router.post("/users/{user_id}/reset-password", response_model=TempPasswordResponse)
+@limiter.limit("20/minute")  # credential-issuing endpoint — cap even for a compromised admin token
+async def reset_password(request: Request, user_id: str, admin: dict = Depends(require_admin)):
+    """Reset (not set) a user's password to a new strong random value.
+    The admin never chooses the value; it is returned once for secure handoff."""
     uid = parse_uuid(user_id)
+    temp_password = generate_temp_password()
+
+    # Defensive: ensure the generated value satisfies our own policy.
+    try:
+        validate_password_strength(temp_password)
+    except PasswordPolicyError:
+        temp_password = generate_temp_password(24)
+
+    hashed = hash_password(temp_password)
 
     with get_db_session() as session:
         user = retrieve_user(session, uid)
-        #! Bind the one-time token to the current password hash (single-use) — exactly
-        #! like request_password_reset(). The password itself is NOT changed here.
-        token = create_reset_token(user.user_id.hex, user.password, RESET_LINK_EXPIRE_MINUTES)
-        username = user.username
-        email = user.email
+        user.password = hashed
+        user.force_password_reset = True
+        user.auth_attempts = 0  # clear any lockout so the user can sign in with the temp password
+        session.commit()
         uid_hex = user.user_id.hex
 
-        #! SR-11: an admin-initiated password reset is a security-relevant event.
-        log_action(
-            session, user_id=_parse_uid(admin), action="admin_password_reset",
-            resource_type="user", resource_id=uid, ip_address=_client_ip(request),
-        )
+    return TempPasswordResponse(user_id=uid_hex, temp_password=temp_password)
+
+@router.get("/reports", response_model=List[ReportGroupResponse])
+async def list_reports(status: str = "Pending", admin: dict = Depends(require_admin)):
+    with get_db_session() as session:
+        reports = session.scalars(
+            select(Report).where(Report.status == status).order_by(Report.created_at.desc())
+        ).all()
+        grouped = {}
+        for report in reports:
+            key = f"thread-{report.thread_id}" if report.thread_id else f"post-{report.post_id}"
+            reporter = session.get(User, report.reporter_id)
+            if report.thread_id:
+                thread = session.get(Thread, report.thread_id)
+                original_post = None
+                if thread:
+                    original_post = session.scalar(
+                        select(Post).where(Post.thread_id == thread.thread_id, Post.parent_id.is_(None))
+                    )
+                if key not in grouped:
+                    grouped[key] = {
+                        "type": "Thread",
+                        "title": thread.title if thread else "(Deleted Thread)",
+                        "reported_content": (
+                            "Content removed by moderator."
+                            if thread and thread.is_deleted
+                            else (original_post.content if original_post else None)
+                        ),
+                        "thread_id": thread.thread_id.hex if thread else None,
+                        "post_id": None,
+                        "reports": [],
+                    }
+                grouped[key]["reports"].append(
+                    IndividualReportResponse(
+                        report_id=report.report_id.hex,
+                        reporter_name=reporter.username if reporter else "Unknown",
+                        reason=report.reason,
+                        description=report.description,
+                        status=report.status,
+                        created_at=report.created_at,
+                    )
+                )
+            elif report.post_id:
+                post = session.get(Post, report.post_id)
+                thread = session.get(Thread, post.thread_id) if post else None
+                if key not in grouped:
+                    grouped[key] = {
+                        "type": "Reply",
+                        "title": thread.title if thread else "(Deleted Thread)",
+                        "reported_content": (
+                            "Content removed by moderator."
+                            if post and post.is_deleted
+                            else (post.content if post else None)
+                        ),
+                        "thread_id": thread.thread_id.hex if thread else None,
+                        "post_id": post.post_id.hex if post else None,
+                        "reports": [],
+                    }
+                grouped[key]["reports"].append(
+                    IndividualReportResponse(
+                        report_id=report.report_id.hex,
+                        reporter_name=reporter.username if reporter else "Unknown",
+                        reason=report.reason,
+                        description=report.description,
+                        status=report.status,
+                        created_at=report.created_at,
+                    )
+                )
+        response = []
+        for group in grouped.values():
+            response.append(
+                ReportGroupResponse(
+                    type=group["type"],
+                    title=group["title"],
+                    reported_content=group["reported_content"],
+                    thread_id=group["thread_id"],
+                    post_id=group["post_id"],
+                    report_count=len(group["reports"]),
+                    reports=group["reports"],
+                )
+            )
+        return response
+
+@router.patch("/reports/{report_id}")
+async def update_report_status(report_id: UUID, payload: UpdateReportStatusRequest, admin: dict = Depends(require_admin)):
+    with get_db_session() as session:
+        report = session.get(Report, report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        if report.thread_id:
+            all_reports = session.scalars(select(Report).where(Report.thread_id == report.thread_id)).all()
+        else:
+            all_reports = session.scalars(select(Report).where(Report.post_id == report.post_id)).all()
+        for r in all_reports:
+            r.status = payload.status
         session.commit()
+        return {"success": True}
 
-    reset_link = f"{FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={quote(token)}"
-    #! Send after the response is returned — keeps SMTP latency/errors off the request path.
-    background_tasks.add_task(
-        send_password_reset_email, email, username, reset_link, RESET_LINK_EXPIRE_MINUTES
-    )
-
-    return ResetLinkSentResponse(user_id=uid_hex)
+@router.delete("/reports/{report_id}/remove")
+async def remove_reported_content(report_id: UUID, admin: dict = Depends(require_admin)):
+    with get_db_session() as session:
+        report = session.get(Report, report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        if report.thread_id:
+            thread = session.get(Thread, report.thread_id)
+            if thread:
+                thread.is_deleted = True
+                session.flush() 
+        elif report.post_id:
+            post = session.get(Post, report.post_id)
+            if post:
+                post.is_deleted = True
+                session.flush()  
+        if report.thread_id:
+            all_reports = session.scalars(select(Report).where(Report.thread_id == report.thread_id)).all()
+        else:
+            all_reports = session.scalars(select(Report).where(Report.post_id == report.post_id)).all()
+        for r in all_reports:
+            r.status = "Resolved"
+        session.commit()
+        return {"success": True}

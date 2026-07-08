@@ -1,8 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey,
-    PrimaryKeyConstraint, UniqueConstraint, Text
+    Column, String, Integer, Boolean, Float, DateTime, JSON, ForeignKey, UniqueConstraint, Text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -43,7 +42,9 @@ class User(Base):
     #^ No User.enrollments back-ref on purpose: enrollment queries go through student_id
     #^ directly (see course_router._my_enrollments), so the reverse link is left disabled.
     cart = relationship("Cart", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    liked_posts = relationship("PostLikes", back_populates="user", cascade="all, delete-orphan")
+    liked_threads = relationship("ThreadLike", back_populates="user", cascade="all, delete-orphan")
+    last_viewed_thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id"), nullable=True)
+    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 # --- PENDING REGISTRATION (email verification) ---
@@ -149,6 +150,8 @@ class Thread(Base):
     # Relationships
     category = relationship("Category", back_populates="threads")
     posts = relationship("Post", back_populates="thread", cascade="all, delete-orphan")
+    likes = relationship("ThreadLike", back_populates="thread", cascade="all, delete-orphan")
+    is_deleted = Column(Boolean, nullable=False, default=False,)
 
 
 # --- POST MODEL ---
@@ -169,31 +172,47 @@ class Post(Base):
 
     # Relationships
     thread = relationship("Thread", back_populates="posts")
-    parent = relationship("Post", remote_side=[post_id], back_populates="replies")
-    replies = relationship("Post", back_populates="parent")
+    parent = relationship("Post", remote_side=[post_id], back_populates="child_posts")
+    child_posts = relationship("Post", back_populates="parent")
     
     # Hierarchy mappings
-    likes = relationship("PostLikes", back_populates="post", cascade="all, delete-orphan")
+    #likes = relationship("PostLikes", back_populates="post", cascade="all, delete-orphan")
 
     attachments = relationship("PostAttachment", back_populates="post", cascade="all, delete-orphan")
     reports = relationship("PostReport", back_populates="post", cascade="all, delete-orphan")
+    is_deleted = Column(Boolean, nullable=False, default=False,)
 
 # --- POST LIKES MODEL ---
-class PostLikes(Base):
-    __tablename__ = "post_likes"
+class ThreadLike(Base):
+    __tablename__ = "thread_likes"
 
-    post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
-    liked_time = Column(DateTime, default=lambda:datetime.now(timezone.utc), nullable=False)
-
-    # Table-level composite primary key constraint
-    __table_args__ = (
-        PrimaryKeyConstraint("post_id", "user_id"),
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("user.user_id", ondelete="CASCADE"),
+        primary_key=True
     )
 
-    # Relationships
-    post = relationship("Post", back_populates="likes")
-    user = relationship("User", back_populates="liked_posts")
+    thread_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("thread.thread_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    user = relationship(
+        "User",
+        back_populates="liked_threads"
+    )
+
+    thread = relationship(
+        "Thread",
+        back_populates="likes"
+    )
 
 
 # --- COURSE MODEL ---
@@ -436,3 +455,16 @@ class Cart(Base):
     cart_items = Column(JSON, nullable=False, default=list) # array representation of course objects stored as json
 
     user = relationship("User", back_populates="cart")
+
+# --- REPORTING MODEL --- 
+class Report(Base):
+    __tablename__ = "report"
+
+    report_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,)
+    reporter_id = Column(UUID(as_uuid=True), ForeignKey("user.user_id", ondelete="CASCADE"), nullable=False,)
+    thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id", ondelete="CASCADE"), nullable=True,)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("post.post_id", ondelete="CASCADE"), nullable=True,)
+    reason = Column(String(100), nullable=False)
+    description = Column(Text)
+    status = Column(String(20), default="Pending")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),)
