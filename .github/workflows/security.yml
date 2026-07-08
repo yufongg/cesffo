@@ -12,7 +12,7 @@ jobs:
     name: Scan Third-Party Dependencies
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run OWASP Dependency-Check
         uses: dependency-check/DependencyCheck_Action@main
