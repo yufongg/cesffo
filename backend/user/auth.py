@@ -6,6 +6,7 @@ import string
 from argon2 import PasswordHasher, Type, exceptions
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
+from fastapi.concurrency import run_in_threadpool
 from jose import jwt
 from pydantic import EmailStr
 from sqlalchemy import select
@@ -199,14 +200,14 @@ def generate_temp_password(length: int = 16) -> str:
 
 
 def validate_password_strength(password: str, *, username: str = "", email: str = "") -> None:
-    #! SR-01: length + character-class rules first, then the defence-in-depth
-    #! blocklist and "must not contain your own username/email" checks.
+    #! SR-01 (NIST SP 800-63B): length bounds only — no composition rules — then
+    #! the "must not contain your own username/email" checks and the HIBP
+    #! breached-password screen. May block on network I/O (HIBP): async callers
+    #! must invoke this via run_in_threadpool, never directly.
     if len(password) < MIN_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"Max allowed password length is {MAX_PASSWORD_LENGTH} characters long")
-    if not any(c.islower() for c in password):
-        raise PasswordPolicyError("Password must include at least one lowercase letter")
 
     lowered = password.lower()
     if username and username.lower() in lowered:
@@ -299,7 +300,9 @@ async def request_registration(
     username = username.strip()
 
     #! Enforce the password policy before touching the DB or hashing (cheap reject first).
-    validate_password_strength(password, username=username, email=email)
+    # Threadpool: the HIBP breach check inside does blocking network I/O and
+    # must never stall the event loop.
+    await run_in_threadpool(validate_password_strength, password, username=username, email=email)
 
     email_bidx = blind_index(email)
     code = generate_verification_code()
@@ -729,7 +732,9 @@ async def change_password_authenticated(
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
         # Same policy as registration (length, blocklist, not username/email).
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
 
         # Forbid a no-op "change" back to the same password.
         if current_password == new_password:
@@ -764,7 +769,9 @@ async def request_password_change_otp(
         except (exceptions.InvalidHashError, exceptions.VerificationError):
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
         if current_password == new_password:
             raise PasswordPolicyError("New password must be different from the current one")
 
@@ -819,7 +826,9 @@ async def verify_password_change_otp(
         except (exceptions.InvalidHashError, exceptions.VerificationError):
             raise HTTPException(status_code=500, detail="Internal authentication error")
 
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
         if current_password == new_password:
             raise PasswordPolicyError("New password must be different from the current one")
 
@@ -931,7 +940,9 @@ async def change_password(
             raise ResetTokenInvalidError()
 
         # Same policy as registration (length, blocklist, not username/email).
-        validate_password_strength(new_password, username=user.username, email=user.email)
+        await run_in_threadpool(
+            validate_password_strength, new_password, username=user.username, email=user.email
+        )
 
         # Don't let them "rotate" straight back to the temporary password.
         try:
