@@ -10,7 +10,7 @@ services:
     networks:
       - net
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     expose:
       - 5000
     volumes:
@@ -63,14 +63,12 @@ services:
     # host for local DB tooling.
     networks:
       - net
-    ports:
-      - "5432:5432"
     expose:
       - 5432
     environment:
       POSTGRES_DB: ${POSTGRES_DB} # The name of the database to create
       POSTGRES_USER: postgres # A user for the database
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD} # Password for the user
+      POSTGRES_PASSWORD: ${POSTGRES_SECRET} # Password for the user
       APP_USER: ${POSTGRES_USER}
       APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
@@ -93,7 +91,7 @@ services:
     networks:
       - net
     ports:
-      - "80:3000" 
+      - "127.0.0.1:3000:3000" 
    
     depends_on:
       - backend # Ensure the web backend is running before the frontend starts
