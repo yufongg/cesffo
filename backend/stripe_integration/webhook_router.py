@@ -11,6 +11,8 @@ from db.db import get_db_session
 
 router = APIRouter(prefix="/api/v1/stripe", tags=["Stripe"])
 
+IS_PRODUCTION = os.getenv("APP_ENV", "development") == "production"
+
 @router.post("/webhook", status_code=200)
 async def stripe_webhook(request: Request):
     """
@@ -18,6 +20,11 @@ async def stripe_webhook(request: Request):
     Verifies signature and processes payment events.
     """
     endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    #! Fail closed in production: an unsigned webhook must never be able to
+    #! mutate payment state (e.g. a forged checkout.session.completed marking
+    #! an unpaid enrollment as paid). The unverified path is dev-only.
+    if IS_PRODUCTION and not endpoint_secret:
+        raise HTTPException(status_code=500, detail="Webhook not configured")
     raw_payload = await request.body()
     payload = raw_payload.decode('utf-8')
 
@@ -35,7 +42,8 @@ async def stripe_webhook(request: Request):
             event = stripe.Webhook.construct_event(
                 raw_payload, sig_header, endpoint_secret
             )
-        except stripe.error.SignatureVerificationError as e:
+        except (ValueError, stripe.error.SignatureVerificationError) as e:
+            # ValueError covers a missing/garbled Stripe-Signature header.
             print('Webhook signature verification failed.' + str(e))
             return {'success': False}
 
@@ -56,6 +64,8 @@ async def stripe_webhook(request: Request):
         data = event['data']
         print(data)
         await _handle_payment_failed(data, request)
+    elif event['type'] == 'checkout.session.expired':
+        await _handle_checkout_expired(event['data'], request)
     else:
         # Unexpected event type
         # print('Unhandled event type {}'.format(event['type']))
@@ -131,6 +141,29 @@ async def _handle_payment_succeeded(data: dict, request: Request):
             enrollment.amount_paid = payment_intent.amount
             enrollment.currency = payment_intent.currency.upper()
             
+        db_session.flush()
+
+
+async def _handle_checkout_expired(data: dict, request: Request):
+    """
+    Handle checkout.session.expired event (the user abandoned the Checkout
+    page). Marks the pre-staged PENDING rows failed so the courses can be
+    added to the cart and purchased again.
+    """
+    stripe_session = data["object"]
+    session_id = stripe_session.id
+
+    with get_db_session() as db_session:
+        existing_enrollments = db_session.scalars(
+            select(CourseEnrollment).where(
+                CourseEnrollment.stripe_payment_id == session_id,
+                CourseEnrollment.payment_status == PaymentStatus.PENDING,
+            )
+        ).all()
+
+        for enrollment in existing_enrollments:
+            enrollment.payment_status = PaymentStatus.FAILED
+
         db_session.flush()
 
 

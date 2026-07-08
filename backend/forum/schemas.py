@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -117,7 +117,9 @@ class UserReportResponse(BaseModel):
         from_attributes = True
 
 class UpdateReportStatusRequest(BaseModel):
-    status: str
+    # Allow-list: the report workflow only knows these states; anything else
+    # would corrupt the moderation queue (admin-only endpoint, but still).
+    status: Literal["Pending", "Resolved", "Dismissed"]
 
 class AdminReportResponse(BaseModel):
     report_id: str
