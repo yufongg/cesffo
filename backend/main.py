@@ -65,6 +65,11 @@ def ensure_schema():
         # fresh installs via create_all().
         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS email_bidx VARCHAR(64)',
         'CREATE UNIQUE INDEX IF NOT EXISTS ix_user_email_bidx ON "user" (email_bidx)',
+        # Forum last-viewed pointer (create_all() made the thread table before
+        # this runs). ON DELETE SET NULL so hard-deleting a thread never trips
+        # the FK — the getter treats a missing thread as "none".
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_viewed_thread_id UUID REFERENCES thread(thread_id) ON DELETE SET NULL',
+        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE course ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 0',
         "ALTER TABLE course ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'SGD'",
@@ -76,6 +81,10 @@ def ensure_schema():
         # Forum: column added to the pre-existing post table by the merged
         # discussion-forum feature (new forum tables are made by create_all()).
         'ALTER TABLE post ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE',
+        # Forum soft-delete flags (discussion-forum-pt2 filters on these; declared
+        # on its Thread/Post models for fresh installs, added here for existing DBs).
+        'ALTER TABLE thread ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE',
+        'ALTER TABLE post ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE',
         # OTP resend ceiling (anti inbox-bombing) — see MAX_CODE_SENDS.
         'ALTER TABLE pending_registration ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',
         'ALTER TABLE login_challenge ADD COLUMN IF NOT EXISTS sends INTEGER NOT NULL DEFAULT 1',

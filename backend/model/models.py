@@ -33,6 +33,12 @@ class User(Base):
     xp = Column(Integer, default=0, nullable=False)                 # lifetime XP earned (drives leaderboards)
     level = Column(Integer, default=1, nullable=False)              # derived from xp; stored for fast ranking
 
+    #? Forum "continue where you left off" pointer (set by POST /threads/{id}/view,
+    #? read by GET /users/last-viewed). SET NULL: threads are hard-deleted, so the
+    #? pointer must not block deletion; the getter treats a missing thread as "none".
+    last_viewed_thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id", ondelete="SET NULL"), nullable=True)
+    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
+
     #? Relationships
     #^ No User.enrollments back-ref on purpose: enrollment queries go through student_id
     #^ directly (see course_router._my_enrollments), so the reverse link is left disabled.
