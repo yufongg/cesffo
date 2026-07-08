@@ -1,6 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, func
 from forum.schemas import (
@@ -8,8 +8,6 @@ from forum.schemas import (
     ReportGroupResponse,
     IndividualReportResponse,
 )
-import os
-from urllib.parse import quote
 from core.rate_limit import limiter
 from common.security import to_uuid
 from db.db import get_db_session
