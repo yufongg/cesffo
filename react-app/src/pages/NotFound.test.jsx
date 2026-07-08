@@ -28,8 +28,9 @@ test('unauthenticated visitors are directed back to login, not into the app', ()
 });
 
 test('authenticated users are directed back to their learning dashboard', () => {
+  localStorage.setItem('access_token', 'fake_token');
   localStorage.setItem('user_role', 'student');
   renderPage();
-  const link = screen.getByRole('link', { name: /back to my learning/i });
+  const link = screen.getByRole('link', { name: /Back to My Learning/i });
   expect(link).toHaveAttribute('href', '/courses');
 });
