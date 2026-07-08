@@ -50,9 +50,14 @@ jobs:
         cache: 'pip'
 
     - name: Audit Python Dependencies (pip-audit)
+      # PYSEC-2026-1325 (CVE-2024-23342): Minerva timing attack in `ecdsa`, a
+      # transitive dependency of python-jose. Not exploitable here — JWTs are
+      # signed with HS256 (HMAC) and no ECDSA signing/ECDH path is ever
+      # exercised. Upstream considers side channels out of scope; no fixed
+      # version exists to upgrade to, so it is a documented accepted risk.
       run: |
         pip install pip-audit
-        pip-audit -r ./backend/requirements.txt
+        pip-audit -r ./backend/requirements.txt --ignore-vuln PYSEC-2026-1325
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
