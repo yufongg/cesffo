@@ -8,7 +8,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
 
     -- Grant permissions dynamically
     GRANT ALL PRIVILEGES ON DATABASE $POSTGRES_DB TO "$APP_USER";
-    
+
     \c $POSTGRES_DB
     GRANT ALL ON SCHEMA public TO "$APP_USER";
 EOSQL
