@@ -72,16 +72,14 @@ ROLE_ADMIN = "admin"
 ALLOWED_ROLES = frozenset({ROLE_STUDENT, ROLE_INSTRUCTOR, ROLE_ADMIN})
 
 # --- Password policy (SR-01) ---
-# Minimum 8 chars AND at least one uppercase, one lowercase, one digit and one
-# special character. Strength here comes from the enforced character-class
-# complexity (plus the known-bad blocklist and the username/email-substring
-# checks below as defence-in-depth) rather than from raw length alone.
+# Aligned with NIST SP 800-63B
 MIN_PASSWORD_LENGTH = 8
 # Cap at 128 to bound Argon2 work (DoS guard) while still permitting passphrases.
 # This MUST match the router schema's max_length.
 MAX_PASSWORD_LENGTH = 128
-# Characters accepted as "special" for the SR-01 complexity check. Kept broad so
-# password managers and generated temp passwords can satisfy the rule.
+
+# Character pool used only by generate_temp_password() 
+SPECIAL_CHARS = "!@#$%^&*()-_=+[]{};:,.<>?/|~`\"'\\"
 
 # Single shared hasher instance (thread-safe). Parameters are pinned explicitly to
 # satisfy SR-02 (Argon2id, 64 MiB memory, 3 iterations, parallelism 4) instead of
@@ -190,11 +188,8 @@ def generate_temp_password(length: int = 16) -> str:
     trivially satisfies the length rule and will never appear in the HIBP breach
     corpus, so it always passes validate_password_strength().
     """
-    # Local pool only for generation; the validation policy itself imposes no
-    # special-character requirement (NIST SP 800-63B).
-    specials = "!@#$%^&*()-_=+[]{};:,.<>?"
     length = max(length, MIN_PASSWORD_LENGTH)
-    pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, specials)
+    pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS)
     # One guaranteed character from each required class, then fill from the union.
     chars = [secrets.choice(pool) for pool in pools]
     alphabet = "".join(pools)

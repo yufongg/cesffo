@@ -134,7 +134,7 @@ class UserRegistrationSchema(BaseModel):
         ...,
         min_length=MIN_PASSWORD_LENGTH,
         max_length=128,
-        description="Min 8 chars with an uppercase, lowercase, number and special character. Full policy enforced server-side.",
+        description="At least 8 characters, must not contain your username or email, and must not appear in known data breaches. Full policy enforced server-side.",
     )
     password_confirm: str
 
