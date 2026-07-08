@@ -56,6 +56,8 @@ async def stripe_webhook(request: Request):
         data = event['data']
         print(data)
         await _handle_payment_failed(data, request)
+    elif event['type'] == 'checkout.session.expired':
+        await _handle_checkout_expired(event['data'], request)
     else:
         # Unexpected event type
         # print('Unhandled event type {}'.format(event['type']))
@@ -131,6 +133,29 @@ async def _handle_payment_succeeded(data: dict, request: Request):
             enrollment.amount_paid = payment_intent.amount
             enrollment.currency = payment_intent.currency.upper()
             
+        db_session.flush()
+
+
+async def _handle_checkout_expired(data: dict, request: Request):
+    """
+    Handle checkout.session.expired event (the user abandoned the Checkout
+    page). Marks the pre-staged PENDING rows failed so the courses can be
+    added to the cart and purchased again.
+    """
+    stripe_session = data["object"]
+    session_id = stripe_session.id
+
+    with get_db_session() as db_session:
+        existing_enrollments = db_session.scalars(
+            select(CourseEnrollment).where(
+                CourseEnrollment.stripe_payment_id == session_id,
+                CourseEnrollment.payment_status == PaymentStatus.PENDING,
+            )
+        ).all()
+
+        for enrollment in existing_enrollments:
+            enrollment.payment_status = PaymentStatus.FAILED
+
         db_session.flush()
 
 

@@ -478,7 +478,12 @@ async def enroll_course(course_id: str, request: Request, current_user: dict = D
             )
         )
         if existing is not None:
+            # Free enrollments are always "paid"; also repairs rows created
+            # before this endpoint set payment_status (they defaulted to
+            # "failed" and were invisible to the PAID-filtered queries).
+            existing.payment_status = PaymentStatus.PAID
             if not existing.dropped:
+                session.commit()
                 return EnrollResult(
                     course_id=cid.hex, enrolled=True, already_enrolled=True, progress=existing.progress,
                 )
@@ -489,6 +494,7 @@ async def enroll_course(course_id: str, request: Request, current_user: dict = D
 
         enrollment = CourseEnrollment(
             course_id=cid, student_id=student_id, progress=0.0, dropped=False,
+            payment_status=PaymentStatus.PAID,
         )
         session.add(enrollment)
         session.commit()
