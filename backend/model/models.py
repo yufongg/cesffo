@@ -43,8 +43,6 @@ class User(Base):
     #^ directly (see course_router._my_enrollments), so the reverse link is left disabled.
     cart = relationship("Cart", back_populates="user", uselist=False, cascade="all, delete-orphan")
     liked_threads = relationship("ThreadLike", back_populates="user", cascade="all, delete-orphan")
-    last_viewed_thread_id = Column(UUID(as_uuid=True), ForeignKey("thread.thread_id"), nullable=True)
-    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 # --- PENDING REGISTRATION (email verification) ---

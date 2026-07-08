@@ -317,24 +317,33 @@ async def create_post(
         parent_uuid = None
 
         if parent_id:
+            try:
                 parent_uuid = UUID(parent_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid parent post id")
 
-                parent_post = session.get(Post, parent_uuid)
+            parent_post = session.get(Post, parent_uuid)
 
-                if not parent_post or parent_post.is_deleted:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Parent post not found"
-                    )
+            if not parent_post or parent_post.is_deleted:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Parent post not found"
+                )
 
-                # Prevent replying to a reply (max depth = 1)
-                if parent_post.parent_id is not None:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Cannot reply to a reply"
-                    )
+            # The parent must live in the thread being replied to.
+            if parent_post.thread_id != thread.thread_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Parent post belongs to a different thread"
+                )
 
-            # Existing post creation
+            # Prevent replying to a reply (max depth = 1)
+            if parent_post.parent_id is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot reply to a reply"
+                )
+
         post = Post(
                 thread_id=thread.thread_id,
                 creator_id=uid,

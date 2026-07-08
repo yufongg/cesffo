@@ -11,6 +11,8 @@ from db.db import get_db_session
 
 router = APIRouter()
 
+IS_PRODUCTION = os.getenv("APP_ENV", "development") == "production"
+
 @router.post("/stripe/webhook", status_code=200)
 async def stripe_webhook(request: Request):
     """
@@ -18,6 +20,11 @@ async def stripe_webhook(request: Request):
     Verifies signature and processes payment events.
     """
     endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    #! Fail closed in production: an unsigned webhook must never be able to
+    #! mutate payment state (e.g. a forged checkout.session.completed marking
+    #! an unpaid enrollment as paid). The unverified path is dev-only.
+    if IS_PRODUCTION and not endpoint_secret:
+        raise HTTPException(status_code=500, detail="Webhook not configured")
     raw_payload = await request.body()
     payload = raw_payload.decode('utf-8')
 
@@ -35,7 +42,8 @@ async def stripe_webhook(request: Request):
             event = stripe.Webhook.construct_event(
                 raw_payload, sig_header, endpoint_secret
             )
-        except stripe.error.SignatureVerificationError as e:
+        except (ValueError, stripe.error.SignatureVerificationError) as e:
+            # ValueError covers a missing/garbled Stripe-Signature header.
             print('Webhook signature verification failed.' + str(e))
             return {'success': False}
 

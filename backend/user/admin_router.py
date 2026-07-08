@@ -10,6 +10,7 @@ from forum.schemas import (
 )
 from core.rate_limit import limiter
 from common.security import to_uuid
+from common.encryption import blind_index
 from db.db import get_db_session
 from model.models import (
     User,
@@ -127,14 +128,19 @@ async def create_user(request: Request, req: CreateUserRequest, admin: dict = De
     temp_password = generate_temp_password()
     hashed = hash_password(temp_password)
 
+    # The email column is randomized-AES encrypted, so equality on it can never
+    # match; uniqueness lookups must go through the deterministic blind index.
+    email_bidx = blind_index(email)
+
     with get_db_session() as session:
-        if session.scalar(select(User).where(User.email == email)):
+        if session.scalar(select(User).where(User.email_bidx == email_bidx)):
             raise HTTPException(status_code=409, detail="A user with that email already exists")
         if session.scalar(select(User).where(User.username == username)):
             raise HTTPException(status_code=409, detail="A user with that username already exists")
 
         user = User(
             email=email,
+            email_bidx=email_bidx,
             username=username,
             password=hashed,
             role=role,
