@@ -3,7 +3,7 @@ python-jose[cryptography]==3.5.0
 dynaconf==3.3.2
 fastapi==0.139.0
 uvicorn[standard]==0.50.2
-websockets==16.0
+websockets==16.1.1
 sqlmodel==0.0.39
 pydantic==2.13.4
 pydantic[email]==2.13.4
