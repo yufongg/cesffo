@@ -16,7 +16,7 @@ slowapi==0.1.10
 python-multipart==0.0.32
 
 bandit==1.9.4
-ruff==0.15.20
+ruff==0.15.22
 pytest==9.1.1
 pytest-asyncio==1.4.0
 httpx==0.28.1
