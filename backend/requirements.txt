@@ -1,7 +1,7 @@
 argon2-cffi==25.1.0
 python-jose[cryptography]==3.5.0
 dynaconf==3.3.2
-fastapi==0.139.0
+fastapi==0.140.7
 uvicorn[standard]==0.50.2
 websockets==16.0
 sqlmodel==0.0.39
